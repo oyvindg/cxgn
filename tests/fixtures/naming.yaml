@@ -1,0 +1,5 @@
+# YAML uses snake_case, C++ uses camelCase
+max_retry_count: 3
+server_host: "localhost"
+is_enabled: true
+connection_timeout: 30.5

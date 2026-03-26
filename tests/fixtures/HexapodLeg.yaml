@@ -1,0 +1,26 @@
+index: 0
+
+base_position:
+  x: 80.0
+  y: 0.0
+  z: 0.0
+
+rest_position:
+  x: 130.0
+  y: -40.0
+  z: -60.0
+
+coxa:
+  length: 52.0
+  min: -45.0
+  max: 45.0
+
+femur:
+  length: 66.0
+  min: -90.0
+  max: 90.0
+
+tibia:
+  length: 130.0
+  min: -150.0
+  max: 0.0

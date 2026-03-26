@@ -1,0 +1,8 @@
+rules:
+  - "close > open"
+  - must:
+      - "volume > 1000"
+    should:
+      - "close > ema"
+    must_not:
+      - "low > high"

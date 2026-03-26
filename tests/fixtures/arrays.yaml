@@ -1,0 +1,7 @@
+values: [1, 2, 3, 4, 5]
+items:
+  - id: 1
+    label: "first"
+  - id: 2
+    label: "second"
+name: "test_array"
