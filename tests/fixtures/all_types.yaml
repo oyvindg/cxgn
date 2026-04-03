@@ -24,7 +24,7 @@ bool_true:  true
 bool_false: false
 
 # String types
-str_val: "hello cxgen"
+str_val: "hello cxgn"
 sv_val:  "string_view"
 
 # Arrays
@@ -40,11 +40,15 @@ opt_double_present: 0.5
 # Optional — absent
 opt_int_absent: null
 
-# OneOf — scalar selects index 0 (int), mapping selects index 1 (Point2D)
-one_of_scalar: 7
-one_of_mapping:
+# std::variant — scalar selects index 0 (int), mapping selects index 1 (Point2D)
+variant_scalar: 7
+variant_mapping:
   x: 10
   y: 20
+
+# std::variant<Circle, Rectangle> — Circle is the supported mapping case today
+shape:
+  radius: 12.5
 
 # Nested struct
 nested:

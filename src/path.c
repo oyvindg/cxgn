@@ -12,9 +12,9 @@
 typedef struct {
     char** items;
     size_t count;
-} cg_path_parts;
+} cxgn_path_parts;
 
-static void free_path_parts(cg_path_parts* parts) {
+static void free_path_parts(cxgn_path_parts* parts) {
     if (!parts || !parts->items) return;
     for (size_t i = 0; i < parts->count; i++) {
         free(parts->items[i]);
@@ -24,17 +24,17 @@ static void free_path_parts(cg_path_parts* parts) {
     parts->count = 0;
 }
 
-static bool append_path_part(cg_path_parts* parts, const char* start, size_t len) {
+static bool append_path_part(cxgn_path_parts* parts, const char* start, size_t len) {
     char** new_items = (char**)realloc(parts->items, (parts->count + 1) * sizeof(char*));
     if (!new_items) return false;
     parts->items = new_items;
-    parts->items[parts->count] = cg_strndup(start, len);
+    parts->items[parts->count] = cxgn_strndup(start, len);
     if (!parts->items[parts->count]) return false;
     parts->count++;
     return true;
 }
 
-static bool split_normalized_parts(const char* path, cg_path_parts* parts) {
+static bool split_normalized_parts(const char* path, cxgn_path_parts* parts) {
     const char* p = path;
 
     parts->items = NULL;
@@ -69,7 +69,7 @@ static bool split_normalized_parts(const char* path, cg_path_parts* parts) {
     return true;
 }
 
-static char* join_parts(const cg_path_parts* parts, size_t start_index) {
+static char* join_parts(const cxgn_path_parts* parts, size_t start_index) {
     size_t required = 1;
 
     for (size_t i = start_index; i < parts->count; i++) {
@@ -77,7 +77,7 @@ static char* join_parts(const cg_path_parts* parts, size_t start_index) {
     }
 
     if (required == 1) {
-        return cg_strdup(".");
+        return cxgn_strdup(".");
     }
 
     char* result = (char*)malloc(required);
@@ -100,24 +100,24 @@ static char* join_parts(const cg_path_parts* parts, size_t start_index) {
  * Path Creation/Destruction
  * ═══════════════════════════════════════════════════════════════════════════ */
 
-cg_path* cg_path_new(void) {
-    cg_path* path = (cg_path*)malloc(sizeof(cg_path));
+cxgn_path* cxgn_path_new(void) {
+    cxgn_path* path = (cxgn_path*)malloc(sizeof(cxgn_path));
     if (path) {
         path->depth = 0;
-        for (size_t i = 0; i < CG_MAX_PATH_DEPTH; i++) {
-            path->segments[i].type = CG_PATH_KEY;
+        for (size_t i = 0; i < CXGN_MAX_PATH_DEPTH; i++) {
+            path->segments[i].type = CXGN_PATH_KEY;
             path->segments[i].data.key = NULL;
         }
     }
     return path;
 }
 
-void cg_path_free(cg_path* path) {
+void cxgn_path_free(cxgn_path* path) {
     if (!path) return;
 
     /* Free all key strings */
     for (size_t i = 0; i < path->depth; i++) {
-        if (path->segments[i].type == CG_PATH_KEY && path->segments[i].data.key) {
+        if (path->segments[i].type == CXGN_PATH_KEY && path->segments[i].data.key) {
             free(path->segments[i].data.key);
         }
     }
@@ -125,24 +125,24 @@ void cg_path_free(cg_path* path) {
     free(path);
 }
 
-char* cg_get_directory(const char* path) {
+char* cxgn_get_directory(const char* path) {
     const char* last_slash;
 
-    if (!path || !*path) return cg_strdup(".");
+    if (!path || !*path) return cxgn_strdup(".");
 
     last_slash = strrchr(path, '/');
-    if (!last_slash) return cg_strdup(".");
-    if (last_slash == path) return cg_strndup(path, 1);
-    return cg_strndup(path, (size_t)(last_slash - path));
+    if (!last_slash) return cxgn_strdup(".");
+    if (last_slash == path) return cxgn_strndup(path, 1);
+    return cxgn_strndup(path, (size_t)(last_slash - path));
 }
 
-char* cg_path_join(const char* dir, const char* file) {
+char* cxgn_path_join(const char* dir, const char* file) {
     size_t dir_len;
     size_t file_len;
     char* result;
 
-    if (!dir || !*dir) return cg_strdup(file ? file : "");
-    if (!file || !*file) return cg_strdup(dir);
+    if (!dir || !*dir) return cxgn_strdup(file ? file : "");
+    if (!file || !*file) return cxgn_strdup(dir);
 
     dir_len = strlen(dir);
     file_len = strlen(file);
@@ -159,10 +159,10 @@ char* cg_path_join(const char* dir, const char* file) {
     return result;
 }
 
-char* cg_path_relative_to_file(const char* from_path, const char* target_path) {
+char* cxgn_path_relative_to_file(const char* from_path, const char* target_path) {
     char* from_dir;
-    cg_path_parts from_parts;
-    cg_path_parts target_parts;
+    cxgn_path_parts from_parts;
+    cxgn_path_parts target_parts;
     size_t common = 0;
     size_t required = 1;
     char* result;
@@ -170,7 +170,7 @@ char* cg_path_relative_to_file(const char* from_path, const char* target_path) {
 
     if (!from_path || !target_path) return NULL;
 
-    from_dir = cg_get_directory(from_path);
+    from_dir = cxgn_get_directory(from_path);
     if (!from_dir) return NULL;
 
     if (!split_normalized_parts(from_dir, &from_parts)) {
@@ -198,7 +198,7 @@ char* cg_path_relative_to_file(const char* from_path, const char* target_path) {
     }
 
     if (required == 1) {
-        result = cg_strdup(".");
+        result = cxgn_strdup(".");
         free_path_parts(&from_parts);
         free_path_parts(&target_parts);
         return result;
@@ -240,43 +240,43 @@ char* cg_path_relative_to_file(const char* from_path, const char* target_path) {
  * Path Operations
  * ═══════════════════════════════════════════════════════════════════════════ */
 
-void cg_path_push(cg_path* path, const char* key) {
+void cxgn_path_push(cxgn_path* path, const char* key) {
     if (!path || !key) return;
-    if (path->depth >= CG_MAX_PATH_DEPTH) return;
+    if (path->depth >= CXGN_MAX_PATH_DEPTH) return;
 
-    path->segments[path->depth].type = CG_PATH_KEY;
-    path->segments[path->depth].data.key = cg_strdup(key);
+    path->segments[path->depth].type = CXGN_PATH_KEY;
+    path->segments[path->depth].data.key = cxgn_strdup(key);
     path->depth++;
 }
 
-void cg_path_push_index(cg_path* path, size_t index) {
+void cxgn_path_push_index(cxgn_path* path, size_t index) {
     if (!path) return;
-    if (path->depth >= CG_MAX_PATH_DEPTH) return;
+    if (path->depth >= CXGN_MAX_PATH_DEPTH) return;
 
-    path->segments[path->depth].type = CG_PATH_INDEX;
+    path->segments[path->depth].type = CXGN_PATH_INDEX;
     path->segments[path->depth].data.index = index;
     path->depth++;
 }
 
-void cg_path_pop(cg_path* path) {
+void cxgn_path_pop(cxgn_path* path) {
     if (!path || path->depth == 0) return;
 
     path->depth--;
 
     /* Free key if it was a key segment */
-    if (path->segments[path->depth].type == CG_PATH_KEY) {
+    if (path->segments[path->depth].type == CXGN_PATH_KEY) {
         free(path->segments[path->depth].data.key);
         path->segments[path->depth].data.key = NULL;
     }
 }
 
-char* cg_path_to_string(const cg_path* path) {
-    if (!path) return cg_strdup("");
+char* cxgn_path_to_string(const cxgn_path* path) {
+    if (!path) return cxgn_strdup("");
 
     /* Calculate required buffer size */
     size_t required = 1;  /* For null terminator */
     for (size_t i = 0; i < path->depth; i++) {
-        if (path->segments[i].type == CG_PATH_KEY) {
+        if (path->segments[i].type == CXGN_PATH_KEY) {
             if (i > 0) required++;  /* For '.' separator */
             required += strlen(path->segments[i].data.key);
         } else {
@@ -290,7 +290,7 @@ char* cg_path_to_string(const cg_path* path) {
 
     size_t pos = 0;
     for (size_t i = 0; i < path->depth; i++) {
-        if (path->segments[i].type == CG_PATH_KEY) {
+        if (path->segments[i].type == CXGN_PATH_KEY) {
             if (i > 0) {
                 result[pos++] = '.';
             }

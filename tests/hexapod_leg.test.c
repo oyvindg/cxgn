@@ -10,87 +10,87 @@
  * - Generated code contains expected values
  */
 
-#include <cxgen/cxgen.h>
+#include <cxgn/cxgn.h>
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
 
 static void test_struct_parsing(void) {
-    cg_string_utils* utils = cg_string_utils_new();
-    cg_struct_parser* parser = cg_struct_parser_new(utils);
-    cg_error err = {0};
+    cxgn_string_utils* utils = cxgn_string_utils_new();
+    cxgn_struct_parser* parser = cxgn_struct_parser_new(utils);
+    cxgn_error err = {0};
 
-    assert(cg_struct_parser_parse_file(parser, "fixtures/HexapodLeg.hpp", &err));
+    assert(cxgn_struct_parser_parse_file(parser, "fixtures/HexapodLeg.hpp", &err));
 
     /* Both structs must be found — Vec3 via followed include */
-    assert(cg_struct_parser_find_struct(parser, "Vec3")       != NULL);
-    assert(cg_struct_parser_find_struct(parser, "Joint")      != NULL);
-    assert(cg_struct_parser_find_struct(parser, "HexapodLeg") != NULL);
+    assert(cxgn_struct_parser_find_struct(parser, "Vec3")       != NULL);
+    assert(cxgn_struct_parser_find_struct(parser, "Joint")      != NULL);
+    assert(cxgn_struct_parser_find_struct(parser, "HexapodLeg") != NULL);
 
     /* Vec3: float x, y, z; expands to three fields */
-    const cg_struct_info* vec3 = cg_struct_parser_find_struct(parser, "Vec3");
-    assert(cg_struct_get_field_count(vec3) == 3);
-    assert(cg_struct_find_field(vec3, "x") != NULL);
-    assert(cg_struct_find_field(vec3, "y") != NULL);
-    assert(cg_struct_find_field(vec3, "z") != NULL);
+    const cxgn_struct_info* vec3 = cxgn_struct_parser_find_struct(parser, "Vec3");
+    assert(cxgn_struct_get_field_count(vec3) == 3);
+    assert(cxgn_struct_find_field(vec3, "x") != NULL);
+    assert(cxgn_struct_find_field(vec3, "y") != NULL);
+    assert(cxgn_struct_find_field(vec3, "z") != NULL);
 
     /* Joint: length, min, max */
-    const cg_struct_info* joint = cg_struct_parser_find_struct(parser, "Joint");
-    assert(cg_struct_get_field_count(joint) == 3);
-    assert(cg_struct_find_field(joint, "length") != NULL);
-    assert(cg_struct_find_field(joint, "min")    != NULL);
-    assert(cg_struct_find_field(joint, "max")    != NULL);
+    const cxgn_struct_info* joint = cxgn_struct_parser_find_struct(parser, "Joint");
+    assert(cxgn_struct_get_field_count(joint) == 3);
+    assert(cxgn_struct_find_field(joint, "length") != NULL);
+    assert(cxgn_struct_find_field(joint, "min")    != NULL);
+    assert(cxgn_struct_find_field(joint, "max")    != NULL);
 
     /* HexapodLeg: index, basePosition, restPosition, coxa, femur, tibia */
-    const cg_struct_info* leg = cg_struct_parser_find_struct(parser, "HexapodLeg");
-    assert(cg_struct_get_field_count(leg) == 6);
-    assert(cg_struct_find_field(leg, "index")        != NULL);
-    assert(cg_struct_find_field(leg, "basePosition") != NULL);
-    assert(cg_struct_find_field(leg, "restPosition") != NULL);
-    assert(cg_struct_find_field(leg, "coxa")         != NULL);
-    assert(cg_struct_find_field(leg, "femur")        != NULL);
-    assert(cg_struct_find_field(leg, "tibia")        != NULL);
+    const cxgn_struct_info* leg = cxgn_struct_parser_find_struct(parser, "HexapodLeg");
+    assert(cxgn_struct_get_field_count(leg) == 6);
+    assert(cxgn_struct_find_field(leg, "index")        != NULL);
+    assert(cxgn_struct_find_field(leg, "basePosition") != NULL);
+    assert(cxgn_struct_find_field(leg, "restPosition") != NULL);
+    assert(cxgn_struct_find_field(leg, "coxa")         != NULL);
+    assert(cxgn_struct_find_field(leg, "femur")        != NULL);
+    assert(cxgn_struct_find_field(leg, "tibia")        != NULL);
 
-    cg_struct_parser_free(parser);
-    cg_string_utils_free(utils);
+    cxgn_struct_parser_free(parser);
+    cxgn_string_utils_free(utils);
     printf("  ✓ test_struct_parsing\n");
 }
 
 static void test_field_types(void) {
-    cg_string_utils* utils = cg_string_utils_new();
-    cg_struct_parser* parser = cg_struct_parser_new(utils);
-    cg_error err = {0};
+    cxgn_string_utils* utils = cxgn_string_utils_new();
+    cxgn_struct_parser* parser = cxgn_struct_parser_new(utils);
+    cxgn_error err = {0};
 
-    assert(cg_struct_parser_parse_file(parser, "fixtures/HexapodLeg.hpp", &err));
+    assert(cxgn_struct_parser_parse_file(parser, "fixtures/HexapodLeg.hpp", &err));
 
-    const cg_struct_info* vec3  = cg_struct_parser_find_struct(parser, "Vec3");
-    const cg_struct_info* joint = cg_struct_parser_find_struct(parser, "Joint");
-    const cg_struct_info* leg   = cg_struct_parser_find_struct(parser, "HexapodLeg");
+    const cxgn_struct_info* vec3  = cxgn_struct_parser_find_struct(parser, "Vec3");
+    const cxgn_struct_info* joint = cxgn_struct_parser_find_struct(parser, "Joint");
+    const cxgn_struct_info* leg   = cxgn_struct_parser_find_struct(parser, "HexapodLeg");
 
-    assert(strcmp(cg_field_get_type(cg_struct_find_field(vec3,  "x")),            "float") == 0);
-    assert(strcmp(cg_field_get_type(cg_struct_find_field(joint, "length")),        "float") == 0);
-    assert(strcmp(cg_field_get_type(cg_struct_find_field(leg,   "index")),         "int")   == 0);
-    assert(strcmp(cg_field_get_type(cg_struct_find_field(leg,   "basePosition")), "Vec3")  == 0);
-    assert(strcmp(cg_field_get_type(cg_struct_find_field(leg,   "coxa")),         "Joint") == 0);
+    assert(strcmp(cxgn_field_get_type(cxgn_struct_find_field(vec3,  "x")),            "float") == 0);
+    assert(strcmp(cxgn_field_get_type(cxgn_struct_find_field(joint, "length")),        "float") == 0);
+    assert(strcmp(cxgn_field_get_type(cxgn_struct_find_field(leg,   "index")),         "int")   == 0);
+    assert(strcmp(cxgn_field_get_type(cxgn_struct_find_field(leg,   "basePosition")), "Vec3")  == 0);
+    assert(strcmp(cxgn_field_get_type(cxgn_struct_find_field(leg,   "coxa")),         "Joint") == 0);
 
-    cg_struct_parser_free(parser);
-    cg_string_utils_free(utils);
+    cxgn_struct_parser_free(parser);
+    cxgn_string_utils_free(utils);
     printf("  ✓ test_field_types\n");
 }
 
 static void test_generation(void) {
-    cg_string_utils* utils = cg_string_utils_new();
-    cg_struct_parser* parser = cg_struct_parser_new(utils);
-    cg_error err = {0};
+    cxgn_string_utils* utils = cxgn_string_utils_new();
+    cxgn_struct_parser* parser = cxgn_struct_parser_new(utils);
+    cxgn_error err = {0};
 
-    cg_struct_parser_parse_file(parser, "fixtures/HexapodLeg.hpp", &err);
+    cxgn_struct_parser_parse_file(parser, "fixtures/HexapodLeg.hpp", &err);
 
-    cg_generator* gen = cg_generator_new(parser, utils);
-    cg_output* output = cg_generate(gen, "fixtures/HexapodLeg.yaml",
+    cxgn_generator* gen = cxgn_generator_new(parser, utils);
+    cxgn_output* output = cxgn_generate(gen, "fixtures/HexapodLeg.yaml",
                                      "fixtures/HexapodLeg.hpp", &err);
     assert(output != NULL);
 
-    const char* code = cg_output_get_code(output);
+    const char* code = cxgn_output_get_code(output);
     assert(code != NULL);
 
     /* Positions */
@@ -107,10 +107,10 @@ static void test_generation(void) {
     assert(strstr(code, "-45")  != NULL);   /* coxa.min  */
     assert(strstr(code, "-150") != NULL);   /* tibia.min */
 
-    cg_output_free(output);
-    cg_generator_free(gen);
-    cg_struct_parser_free(parser);
-    cg_string_utils_free(utils);
+    cxgn_output_free(output);
+    cxgn_generator_free(gen);
+    cxgn_struct_parser_free(parser);
+    cxgn_string_utils_free(utils);
     printf("  ✓ test_generation\n");
 }
 

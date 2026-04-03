@@ -1,6 +1,6 @@
 /**
  * @file Optional.hpp
- * @brief Constexpr optional for cxgen generated code.
+ * @brief Constexpr optional for cxgn generated code.
  *
  * A simple, constexpr-friendly optional type for use in
  * generated configuration code.
@@ -8,7 +8,7 @@
 
 #pragma once
 
-namespace cxgen {
+namespace cxgn {
 
 /**
  * @brief Constexpr optional value.
@@ -83,7 +83,7 @@ public:
     [[nodiscard]] constexpr T* operator->() noexcept { return &value_; }
 };
 
-} // namespace cxgen
+} // namespace cxgn
 
 /* Global namespace alias for convenience in generated code */
-using cxgen::Optional;
+using cxgn::Optional;

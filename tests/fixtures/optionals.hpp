@@ -1,5 +1,5 @@
 #pragma once
-#include <cxgen/Optional.hpp>
+#include <cxgn/Optional.hpp>
 #include <string>
 
 struct OptionalConfig {

@@ -110,21 +110,22 @@ static size_t extract_identifier(const char* s) {
 /**
  * @brief Free a field_info structure.
  */
-static void field_info_free(cg_field_info* field) {
+static void field_info_free(cxgn_field_info* field) {
     if (!field) return;
     free(field->name);
     free(field->type);
     free(field->default_value);
     free(field->array_elem_type);
     free(field->optional_value_type);
-    free(field->oneof_type_a);
-    free(field->oneof_type_b);
+    for (size_t i = 0; i < field->variant_type_count; i++)
+        free(field->variant_types[i]);
+    free(field->variant_types);
 }
 
 /**
  * @brief Free a struct_info structure.
  */
-static void struct_info_free(cg_struct_info* info) {
+static void struct_info_free(cxgn_struct_info* info) {
     if (!info) return;
     free(info->name);
     free(info->defined_in);
@@ -139,23 +140,23 @@ static void struct_info_free(cg_struct_info* info) {
 /**
  * @brief Add a struct to the parser.
  */
-static cg_struct_info* parser_add_struct(cg_struct_parser* parser, const char* name, const char* file) {
+static cxgn_struct_info* parser_add_struct(cxgn_struct_parser* parser, const char* name, const char* file) {
     if (parser->struct_count >= parser->struct_capacity) {
         size_t new_cap = parser->struct_capacity * 2;
         if (new_cap < 8) new_cap = 8;
-        cg_struct_info* new_structs = (cg_struct_info*)realloc(
-            parser->structs, new_cap * sizeof(cg_struct_info));
+        cxgn_struct_info* new_structs = (cxgn_struct_info*)realloc(
+            parser->structs, new_cap * sizeof(cxgn_struct_info));
         if (!new_structs) return NULL;
         parser->structs = new_structs;
         parser->struct_capacity = new_cap;
     }
 
-    cg_struct_info* info = &parser->structs[parser->struct_count];
+    cxgn_struct_info* info = &parser->structs[parser->struct_count];
     memset(info, 0, sizeof(*info));
-    info->name = cg_strdup(name);
-    info->defined_in = cg_strdup(file);
+    info->name = cxgn_strdup(name);
+    info->defined_in = cxgn_strdup(file);
     info->field_capacity = 8;
-    info->fields = (cg_field_info*)calloc(info->field_capacity, sizeof(cg_field_info));
+    info->fields = (cxgn_field_info*)calloc(info->field_capacity, sizeof(cxgn_field_info));
     if (!info->name || !info->defined_in || !info->fields) {
         struct_info_free(info);
         return NULL;
@@ -168,17 +169,17 @@ static cg_struct_info* parser_add_struct(cg_struct_parser* parser, const char* n
 /**
  * @brief Add a field to a struct.
  */
-static cg_field_info* struct_add_field(cg_struct_info* info) {
+static cxgn_field_info* struct_add_field(cxgn_struct_info* info) {
     if (info->field_count >= info->field_capacity) {
         size_t new_cap = info->field_capacity * 2;
-        cg_field_info* new_fields = (cg_field_info*)realloc(
-            info->fields, new_cap * sizeof(cg_field_info));
+        cxgn_field_info* new_fields = (cxgn_field_info*)realloc(
+            info->fields, new_cap * sizeof(cxgn_field_info));
         if (!new_fields) return NULL;
         info->fields = new_fields;
         info->field_capacity = new_cap;
     }
 
-    cg_field_info* field = &info->fields[info->field_count];
+    cxgn_field_info* field = &info->fields[info->field_count];
     memset(field, 0, sizeof(*field));
     info->field_count++;
     return field;
@@ -214,69 +215,77 @@ static char* extract_template_param(const char* type, const char* wrapper) {
     while (*start && isspace((unsigned char)*start)) start++;
     while (end > start && isspace((unsigned char)*(end - 1))) end--;
 
-    return cg_strndup(start, (size_t)(end - start));
+    return cxgn_strndup(start, (size_t)(end - start));
 }
 
 /**
- * @brief Extract two template params from OneOf<A, B>.
+ * @brief Extract all template params from std::variant<T...>.
+ *
+ * Splits the template argument list by top-level commas and returns an
+ * allocated array of trimmed type strings.  Caller must free each element
+ * and the array itself.
  */
-static bool extract_two_template_params(const char* type, const char* wrapper,
-                                        char** out_a, char** out_b) {
-    if (!out_a || !out_b) return false;
-    *out_a = NULL;
-    *out_b = NULL;
+static bool extract_variant_params(const char* type, const char* wrapper,
+                                   char*** out_types, size_t* out_count) {
+    if (!out_types || !out_count) return false;
+    *out_types = NULL;
+    *out_count = 0;
 
     char* payload = extract_template_param(type, wrapper);
     if (!payload) return false;
 
-    const char* comma = NULL;
+    /* Count top-level commas to pre-allocate */
+    size_t count = 1;
     int depth = 0;
     for (const char* p = payload; *p; ++p) {
         if (*p == '<') depth++;
         else if (*p == '>') depth--;
-        else if (*p == ',' && depth == 0) {
-            comma = p;
-            break;
+        else if (*p == ',' && depth == 0) count++;
+    }
+
+    char** types = (char**)malloc(count * sizeof(char*));
+    if (!types) { free(payload); return false; }
+    for (size_t i = 0; i < count; i++) types[i] = NULL;
+
+    /* Split on top-level commas and trim each segment */
+    size_t idx = 0;
+    const char* seg = payload;
+    depth = 0;
+    for (const char* p = payload; ; ++p) {
+        if (*p == '<') depth++;
+        else if (*p == '>') depth--;
+
+        bool at_sep = ((*p == ',' || *p == '\0') && depth == 0);
+        if (at_sep) {
+            const char* s = seg;
+            const char* e = p;
+            while (s < e && isspace((unsigned char)*s)) s++;
+            while (e > s && isspace((unsigned char)*(e - 1))) e--;
+            if (s >= e) goto fail;
+            types[idx] = cxgn_strndup(s, (size_t)(e - s));
+            if (!types[idx]) goto fail;
+            idx++;
+            seg = p + 1;
         }
+        if (*p == '\0') break;
     }
 
-    if (!comma) {
-        free(payload);
-        return false;
-    }
-
-    const char* a_start = payload;
-    const char* a_end = comma;
-    while (a_end > a_start && isspace((unsigned char)*(a_end - 1))) a_end--;
-    while (*a_start && isspace((unsigned char)*a_start)) a_start++;
-
-    const char* b_start = comma + 1;
-    while (*b_start && isspace((unsigned char)*b_start)) b_start++;
-    const char* b_end = payload + strlen(payload);
-    while (b_end > b_start && isspace((unsigned char)*(b_end - 1))) b_end--;
-
-    if (a_end <= a_start || b_end <= b_start) {
-        free(payload);
-        return false;
-    }
-
-    *out_a = cg_strndup(a_start, (size_t)(a_end - a_start));
-    *out_b = cg_strndup(b_start, (size_t)(b_end - b_start));
     free(payload);
-    if (!*out_a || !*out_b) {
-        free(*out_a);
-        free(*out_b);
-        *out_a = NULL;
-        *out_b = NULL;
-        return false;
-    }
+    *out_types = types;
+    *out_count = count;
     return true;
+
+fail:
+    for (size_t i = 0; i < count; i++) free(types[i]);
+    free(types);
+    free(payload);
+    return false;
 }
 
 /**
  * @brief Check if file was already parsed.
  */
-static bool parser_was_file_parsed(cg_struct_parser* parser, const char* path) {
+static bool parser_was_file_parsed(cxgn_struct_parser* parser, const char* path) {
     for (size_t i = 0; i < parser->parsed_file_count; i++) {
         if (strcmp(parser->parsed_files[i], path) == 0) {
             return true;
@@ -288,7 +297,7 @@ static bool parser_was_file_parsed(cg_struct_parser* parser, const char* path) {
 /**
  * @brief Mark file as parsed.
  */
-static bool parser_mark_file_parsed(cg_struct_parser* parser, const char* path) {
+static bool parser_mark_file_parsed(cxgn_struct_parser* parser, const char* path) {
     if (parser->parsed_file_count >= parser->parsed_file_capacity) {
         size_t new_cap = parser->parsed_file_capacity * 2;
         if (new_cap < 8) new_cap = 8;
@@ -299,7 +308,7 @@ static bool parser_mark_file_parsed(cg_struct_parser* parser, const char* path) 
         parser->parsed_file_capacity = new_cap;
     }
 
-    parser->parsed_files[parser->parsed_file_count] = cg_strdup(path);
+    parser->parsed_files[parser->parsed_file_count] = cxgn_strdup(path);
     if (!parser->parsed_files[parser->parsed_file_count]) return false;
     parser->parsed_file_count++;
     return true;
@@ -308,7 +317,7 @@ static bool parser_mark_file_parsed(cg_struct_parser* parser, const char* path) 
 /**
  * @brief Parse a single field line.
  */
-static bool parse_field_line(const char* line, cg_field_info* field) {
+static bool parse_field_line(const char* line, cxgn_field_info* field) {
     const char* p = skip_whitespace(line);
     if (!*p || *p == '/' || *p == '#' || *p == '}') return false;
 
@@ -329,7 +338,7 @@ static bool parse_field_line(const char* line, cg_field_info* field) {
     if (name_start == name_end) return false;
 
     size_t name_len = (size_t)(name_end - name_start);
-    field->name = cg_strndup(name_start, name_len);
+    field->name = cxgn_strndup(name_start, name_len);
     if (!field->name) return false;
 
     /* Extract type (everything before the name) */
@@ -343,7 +352,7 @@ static bool parse_field_line(const char* line, cg_field_info* field) {
     }
 
     size_t type_len = (size_t)(type_end - p);
-    field->type = cg_strndup(p, type_len);
+    field->type = cxgn_strndup(p, type_len);
     if (!field->type) {
         free(field->name);
         field->name = NULL;
@@ -364,13 +373,13 @@ static bool parse_field_line(const char* line, cg_field_info* field) {
         field->optional_value_type = optional_elem;
     }
 
-    /* Check for OneOf<A, B> */
-    char* oneof_a = NULL;
-    char* oneof_b = NULL;
-    if (extract_two_template_params(field->type, "OneOf", &oneof_a, &oneof_b)) {
-        field->is_oneof = true;
-        field->oneof_type_a = oneof_a;
-        field->oneof_type_b = oneof_b;
+    /* Check for std::variant<T...> */
+    char** vtypes = NULL;
+    size_t vcount = 0;
+    if (extract_variant_params(field->type, "std::variant", &vtypes, &vcount)) {
+        field->is_variant = true;
+        field->variant_types = vtypes;
+        field->variant_type_count = vcount;
     }
 
     /* Parse default value if present */
@@ -382,7 +391,7 @@ static bool parse_field_line(const char* line, cg_field_info* field) {
             default_end--;
         }
         if (default_end > default_start) {
-            field->default_value = cg_strndup(default_start, (size_t)(default_end - default_start));
+            field->default_value = cxgn_strndup(default_start, (size_t)(default_end - default_start));
         }
     }
 
@@ -422,7 +431,7 @@ static bool has_multi_decl_comma(const char* line) {
  * @param info  Struct to append fields to.
  * @return true if at least one field was added.
  */
-static bool parse_multi_field_line(const char* line, cg_struct_info* info) {
+static bool parse_multi_field_line(const char* line, cxgn_struct_info* info) {
     const char* p = skip_whitespace(line);
     const char* semicolon = strchr(p, ';');
     if (!semicolon) return false;
@@ -440,14 +449,14 @@ static bool parse_multi_field_line(const char* line, cg_struct_info* info) {
     if (!first_comma) return false;
 
     /* Synthesize "type first_name;" to reuse parse_field_line */
-    char synth[CG_LINE_SIZE];
+    char synth[CXGN_LINE_SIZE];
     size_t prefix_len = (size_t)(first_comma - p);
     if (prefix_len + 2 >= sizeof(synth)) return false;
     memcpy(synth, p, prefix_len);
     synth[prefix_len]     = ';';
     synth[prefix_len + 1] = '\0';
 
-    cg_field_info proto;
+    cxgn_field_info proto;
     memset(&proto, 0, sizeof(proto));
     if (!parse_field_line(synth, &proto)) return false;
 
@@ -456,7 +465,7 @@ static bool parse_multi_field_line(const char* line, cg_struct_info* info) {
     const char* type_str = proto.type;
 
     bool added = false;
-    cg_field_info* f = struct_add_field(info);
+    cxgn_field_info* f = struct_add_field(info);
     if (!f) { field_info_free(&proto); return false; }
     *f = proto;
     added = true;
@@ -492,10 +501,10 @@ static bool parse_multi_field_line(const char* line, cg_struct_info* info) {
                 synth[type_len + 1 + name_len]     = ';';
                 synth[type_len + 1 + name_len + 1] = '\0';
 
-                cg_field_info extra;
+                cxgn_field_info extra;
                 memset(&extra, 0, sizeof(extra));
                 if (parse_field_line(synth, &extra)) {
-                    cg_field_info* ef = struct_add_field(info);
+                    cxgn_field_info* ef = struct_add_field(info);
                     if (ef) { *ef = extra; added = true; }
                     else field_info_free(&extra);
                 }
@@ -511,8 +520,8 @@ static bool parse_multi_field_line(const char* line, cg_struct_info* info) {
 /**
  * @brief Parse a struct from file content.
  */
-static bool parse_struct(cg_struct_parser* parser, const char* content, const char* file,
-                        size_t* pos, cg_error* err) {
+static bool parse_struct(cxgn_struct_parser* parser, const char* content, const char* file,
+                        size_t* pos, cxgn_error* err) {
     const char* p = content + *pos;
 
     /* Skip 'struct' keyword */
@@ -521,13 +530,13 @@ static bool parse_struct(cg_struct_parser* parser, const char* content, const ch
     /* Extract struct name */
     size_t name_len = extract_identifier(p);
     if (name_len == 0) {
-        cg_error_set(err, CG_ERR_PARSE_ERROR, "Expected struct name");
+        cxgn_error_set(err, CXGN_ERR_PARSE_ERROR, "Expected struct name");
         return false;
     }
 
-    char* name = cg_strndup(p, name_len);
+    char* name = cxgn_strndup(p, name_len);
     if (!name) {
-        cg_error_set(err, CG_ERR_OUT_OF_MEMORY, "Out of memory");
+        cxgn_error_set(err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
         return false;
     }
 
@@ -546,15 +555,15 @@ static bool parse_struct(cg_struct_parser* parser, const char* content, const ch
     p++;  /* Skip '{' */
 
     /* Add struct */
-    cg_struct_info* info = parser_add_struct(parser, name, file);
+    cxgn_struct_info* info = parser_add_struct(parser, name, file);
     free(name);
     if (!info) {
-        cg_error_set(err, CG_ERR_OUT_OF_MEMORY, "Out of memory");
+        cxgn_error_set(err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
         return false;
     }
 
     /* Parse fields until closing brace */
-    char line_buf[CG_LINE_SIZE];
+    char line_buf[CXGN_LINE_SIZE];
     while (*p && *p != '}') {
         /* Find end of line */
         const char* line_end = strchr(p, '\n');
@@ -569,10 +578,10 @@ static bool parse_struct(cg_struct_parser* parser, const char* content, const ch
         if (has_multi_decl_comma(line_buf)) {
             parse_multi_field_line(line_buf, info);
         } else {
-            cg_field_info temp_field;
+            cxgn_field_info temp_field;
             memset(&temp_field, 0, sizeof(temp_field));
             if (parse_field_line(line_buf, &temp_field)) {
-                cg_field_info* field = struct_add_field(info);
+                cxgn_field_info* field = struct_add_field(info);
                 if (field) {
                     *field = temp_field;
                 } else {
@@ -594,8 +603,8 @@ static bool parse_struct(cg_struct_parser* parser, const char* content, const ch
 /**
  * @brief Parse a #include directive.
  */
-static bool parse_include(cg_struct_parser* parser, const char* content, const char* base_dir,
-                          size_t* pos, cg_error* err) {
+static bool parse_include(cxgn_struct_parser* parser, const char* content, const char* base_dir,
+                          size_t* pos, cxgn_error* err) {
     const char* p = content + *pos;
 
     /* Skip #include */
@@ -621,13 +630,13 @@ static bool parse_include(cg_struct_parser* parser, const char* content, const c
 
     /* Only follow local includes (quoted) */
     if (delimiter == '"') {
-        char* include_path = cg_strndup(p, (size_t)(path_end - p));
+        char* include_path = cxgn_strndup(p, (size_t)(path_end - p));
         if (include_path) {
-            char* full_path = cg_path_join(base_dir, include_path);
+            char* full_path = cxgn_path_join(base_dir, include_path);
             free(include_path);
 
             if (full_path && !parser_was_file_parsed(parser, full_path)) {
-                cg_struct_parser_parse_file(parser, full_path, err);
+                cxgn_struct_parser_parse_file(parser, full_path, err);
             }
             free(full_path);
         }
@@ -643,25 +652,25 @@ static bool parse_include(cg_struct_parser* parser, const char* content, const c
  * Public API
  * ═══════════════════════════════════════════════════════════════════════════ */
 
-cg_struct_parser* cg_struct_parser_new(const cg_string_utils* utils) {
-    cg_struct_parser* parser = (cg_struct_parser*)calloc(1, sizeof(cg_struct_parser));
+cxgn_struct_parser* cxgn_struct_parser_new(const cxgn_string_utils* utils) {
+    cxgn_struct_parser* parser = (cxgn_struct_parser*)calloc(1, sizeof(cxgn_struct_parser));
     if (!parser) return NULL;
 
     parser->utils = utils;
     parser->struct_capacity = 8;
-    parser->structs = (cg_struct_info*)calloc(parser->struct_capacity, sizeof(cg_struct_info));
+    parser->structs = (cxgn_struct_info*)calloc(parser->struct_capacity, sizeof(cxgn_struct_info));
     parser->parsed_file_capacity = 8;
     parser->parsed_files = (char**)calloc(parser->parsed_file_capacity, sizeof(char*));
 
     if (!parser->structs || !parser->parsed_files) {
-        cg_struct_parser_free(parser);
+        cxgn_struct_parser_free(parser);
         return NULL;
     }
 
     return parser;
 }
 
-void cg_struct_parser_free(cg_struct_parser* parser) {
+void cxgn_struct_parser_free(cxgn_struct_parser* parser) {
     if (!parser) return;
 
     if (parser->structs) {
@@ -681,11 +690,11 @@ void cg_struct_parser_free(cg_struct_parser* parser) {
     free(parser);
 }
 
-bool cg_struct_parser_parse_file(cg_struct_parser* parser, const char* header_path, cg_error* err) {
-    cg_error_init(err);
+bool cxgn_struct_parser_parse_file(cxgn_struct_parser* parser, const char* header_path, cxgn_error* err) {
+    cxgn_error_init(err);
 
     if (!parser || !header_path) {
-        cg_error_set(err, CG_ERR_PARSE_ERROR, "Invalid arguments");
+        cxgn_error_set(err, CXGN_ERR_PARSE_ERROR, "Invalid arguments");
         return false;
     }
 
@@ -697,7 +706,7 @@ bool cg_struct_parser_parse_file(cg_struct_parser* parser, const char* header_pa
     /* Open and read file */
     FILE* f = fopen(header_path, "r");
     if (!f) {
-        cg_error_set(err, CG_ERR_FILE_NOT_FOUND, "Cannot open header file");
+        cxgn_error_set(err, CXGN_ERR_FILE_NOT_FOUND, "Cannot open header file");
         return false;
     }
 
@@ -716,7 +725,7 @@ bool cg_struct_parser_parse_file(cg_struct_parser* parser, const char* header_pa
     char* content = (char*)malloc((size_t)size + 1);
     if (!content) {
         fclose(f);
-        cg_error_set(err, CG_ERR_OUT_OF_MEMORY, "Out of memory");
+        cxgn_error_set(err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
         return false;
     }
 
@@ -728,7 +737,7 @@ bool cg_struct_parser_parse_file(cg_struct_parser* parser, const char* header_pa
     parser_mark_file_parsed(parser, header_path);
 
     /* Get base directory for includes */
-    char* base_dir = cg_get_directory(header_path);
+    char* base_dir = cxgn_get_directory(header_path);
 
     /* Parse content */
     size_t pos = 0;
@@ -754,16 +763,16 @@ bool cg_struct_parser_parse_file(cg_struct_parser* parser, const char* header_pa
     return true;
 }
 
-size_t cg_struct_parser_get_struct_count(const cg_struct_parser* parser) {
+size_t cxgn_struct_parser_get_struct_count(const cxgn_struct_parser* parser) {
     return parser ? parser->struct_count : 0;
 }
 
-const cg_struct_info* cg_struct_parser_get_struct(const cg_struct_parser* parser, size_t index) {
+const cxgn_struct_info* cxgn_struct_parser_get_struct(const cxgn_struct_parser* parser, size_t index) {
     if (!parser || index >= parser->struct_count) return NULL;
     return &parser->structs[index];
 }
 
-const cg_struct_info* cg_struct_parser_find_struct(const cg_struct_parser* parser, const char* name) {
+const cxgn_struct_info* cxgn_struct_parser_find_struct(const cxgn_struct_parser* parser, const char* name) {
     if (!parser || !name) return NULL;
     for (size_t i = 0; i < parser->struct_count; i++) {
         if (strcmp(parser->structs[i].name, name) == 0) {
@@ -773,7 +782,7 @@ const cg_struct_info* cg_struct_parser_find_struct(const cg_struct_parser* parse
     return NULL;
 }
 
-bool cg_struct_parser_is_builtin_type(const cg_struct_parser* parser, const char* type) {
+bool cxgn_struct_parser_is_builtin_type(const cxgn_struct_parser* parser, const char* type) {
     (void)parser;
     if (!type) return false;
     for (size_t i = 0; builtin_types[i]; i++) {
@@ -784,7 +793,7 @@ bool cg_struct_parser_is_builtin_type(const cg_struct_parser* parser, const char
     return false;
 }
 
-bool cg_struct_parser_is_constexpr_friendly(const cg_struct_parser* parser, const char* type) {
+bool cxgn_struct_parser_is_constexpr_friendly(const cxgn_struct_parser* parser, const char* type) {
     (void)parser;
     if (!type) return false;
     for (size_t i = 0; constexpr_friendly_types[i]; i++) {
@@ -799,24 +808,24 @@ bool cg_struct_parser_is_constexpr_friendly(const cg_struct_parser* parser, cons
  * Struct Info API
  * ═══════════════════════════════════════════════════════════════════════════ */
 
-const char* cg_struct_get_name(const cg_struct_info* info) {
+const char* cxgn_struct_get_name(const cxgn_struct_info* info) {
     return info ? info->name : NULL;
 }
 
-const char* cg_struct_get_defined_in(const cg_struct_info* info) {
+const char* cxgn_struct_get_defined_in(const cxgn_struct_info* info) {
     return info ? info->defined_in : NULL;
 }
 
-size_t cg_struct_get_field_count(const cg_struct_info* info) {
+size_t cxgn_struct_get_field_count(const cxgn_struct_info* info) {
     return info ? info->field_count : 0;
 }
 
-const cg_field_info* cg_struct_get_field(const cg_struct_info* info, size_t index) {
+const cxgn_field_info* cxgn_struct_get_field(const cxgn_struct_info* info, size_t index) {
     if (!info || index >= info->field_count) return NULL;
     return &info->fields[index];
 }
 
-const cg_field_info* cg_struct_find_field(const cg_struct_info* info, const char* name) {
+const cxgn_field_info* cxgn_struct_find_field(const cxgn_struct_info* info, const char* name) {
     if (!info || !name) return NULL;
     for (size_t i = 0; i < info->field_count; i++) {
         if (strcmp(info->fields[i].name, name) == 0) {
@@ -830,42 +839,43 @@ const cg_field_info* cg_struct_find_field(const cg_struct_info* info, const char
  * Field Info API
  * ═══════════════════════════════════════════════════════════════════════════ */
 
-const char* cg_field_get_type(const cg_field_info* field) {
+const char* cxgn_field_get_type(const cxgn_field_info* field) {
     return field ? field->type : NULL;
 }
 
-const char* cg_field_get_name(const cg_field_info* field) {
+const char* cxgn_field_get_name(const cxgn_field_info* field) {
     return field ? field->name : NULL;
 }
 
-const char* cg_field_get_default(const cg_field_info* field) {
+const char* cxgn_field_get_default(const cxgn_field_info* field) {
     return field ? field->default_value : NULL;
 }
 
-bool cg_field_is_array(const cg_field_info* field) {
+bool cxgn_field_is_array(const cxgn_field_info* field) {
     return field ? field->is_array : false;
 }
 
-const char* cg_field_get_array_element_type(const cg_field_info* field) {
+const char* cxgn_field_get_array_element_type(const cxgn_field_info* field) {
     return field ? field->array_elem_type : NULL;
 }
 
-bool cg_field_is_optional(const cg_field_info* field) {
+bool cxgn_field_is_optional(const cxgn_field_info* field) {
     return field ? field->is_optional : false;
 }
 
-const char* cg_field_get_optional_value_type(const cg_field_info* field) {
+const char* cxgn_field_get_optional_value_type(const cxgn_field_info* field) {
     return field ? field->optional_value_type : NULL;
 }
 
-bool cg_field_is_oneof(const cg_field_info* field) {
-    return field ? field->is_oneof : false;
+bool cxgn_field_is_variant(const cxgn_field_info* field) {
+    return field ? field->is_variant : false;
 }
 
-const char* cg_field_get_oneof_type_a(const cg_field_info* field) {
-    return field ? field->oneof_type_a : NULL;
+size_t cxgn_field_get_variant_type_count(const cxgn_field_info* field) {
+    return field ? field->variant_type_count : 0;
 }
 
-const char* cg_field_get_oneof_type_b(const cg_field_info* field) {
-    return field ? field->oneof_type_b : NULL;
+const char* cxgn_field_get_variant_type(const cxgn_field_info* field, size_t index) {
+    if (!field || index >= field->variant_type_count) return NULL;
+    return field->variant_types[index];
 }

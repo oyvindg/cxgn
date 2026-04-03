@@ -1,73 +1,117 @@
-# cxgen
+# cxgn
 
-`cxgen` is a **build-time** C library and CLI. It reads C++ struct definitions and a YAML config file, and generates a `constexpr` root configuration object as a `.gen.hpp` header.
+[![CI](https://github.com/oyvindg/cxgn/actions/workflows/ci.yml/badge.svg)](https://github.com/oyvindg/cxgn/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**cxgen runs during your build, not at runtime.** The YAML is parsed once by the generator, not by your application. The output is baked into your binary as a `constexpr` value — zero runtime overhead, no `libyaml` dependency in your final executable.
+`cxgn` is a **build-time** C library and CLI. It reads C++ struct definitions and a YAML config file, and generates a root configuration object as a `.gen.hpp` header.
+
+**cxgn runs during your build, not at runtime.** The YAML is parsed once by the generator, not by your application. With the default `--std 20`, the output is baked into your binary as a `constexpr` value — zero runtime overhead, no `libyaml` dependency in your final executable.
 
 ## Quick start
 
-**1. Define your struct** (`Config.hpp`):
+`cxgn` works best when your C++ structs are the schema. You define the config model in a header, write values in YAML, and `cxgn` emits a `constexpr` initializer with no runtime YAML dependency.
+
+**1. Define your structs** (`scene.hpp`):
 
 ```cpp
 #pragma once
+#include <cxgn/Array.hpp>
+#include <cxgn/Optional.hpp>
 #include <string>
 
-struct Config {
-    int    timeout;
+struct Vec3 {
+    float x = 0.0f;
+    float y = 0.0f;
+    float z = 0.0f;
+};
+
+struct Point2d {
+    float x;
+    float y;
+};
+
+struct SceneConfig {
     std::string name;
-    bool   enabled = true;
+    Vec3 background;
+    Array<Point2d> waypoints;
+    Optional<std::string> skybox;
+    int maxObjects = 100;
 };
 ```
 
-**2. Write your YAML** (`config.yaml`):
+**2. Write your YAML** (`scene.yaml`):
 
 ```yaml
-timeout: 42
-name: "my-service"
-enabled: true
+name: "Level 1"
+background:
+  x: 0.1
+  y: 0.2
+  z: 0.4
+waypoints:
+  - { x: 0.0,  y: 0.0 }
+  - { x: 10.0, y: 5.0 }
+  - { x: 20.0, y: 0.0 }
+# skybox omitted -> Optional, defaults to empty
+max_objects: 256
 ```
 
-**3. Generate** (`config.gen.hpp`):
+**3. Generate** (`scene.gen.hpp`):
 
 ```bash
-cxgen --yaml config.yaml --header Config.hpp --output config.gen.hpp
+cxgn --yaml scene.yaml --header scene.hpp --output scene.gen.hpp
 ```
+
+The CLI also supports `--std 17`, `--std 20`, or `--std auto`, plus `--verbose` for progress output.
 
 **4. Include and use**:
 
 ```cpp
-#include "config.gen.hpp"
+#include "scene.gen.hpp"
 
-static_assert(config.timeout == 42);
-static_assert(config.enabled == true);
+static_assert(config.maxObjects == 256);
+static_assert(config.waypoints.size() == 3);
+static_assert(config.background.z == 0.4f);
 
 int main() {
-    // config is constexpr — zero runtime cost
-    serve(config.name, config.timeout);
+    // config is generated at build time
+    return config.maxObjects == 256 ? 0 : 1;
 }
 ```
 
 The generated file looks like this:
 
 ```cpp
+// GENERATED FILE - DO NOT EDIT
+// Source YAML: scene.yaml
+// Source Header: scene.hpp
 #pragma once
-#include "Config.hpp"
+#include <variant>
+#include "scene.hpp"
 
-constexpr Config config = {
-    42,     // timeout
-    "my-service",  // name
-    true    // enabled
+namespace {
+static constexpr Point2d waypoints_data[] = {
+    {0.0f, 0.0f}, {10.0f, 5.0f}, {20.0f, 0.0f}
+};
+static constexpr Array<Point2d> waypoints_arr = {waypoints_data, 3};
+} // namespace
+
+constexpr SceneConfig config = {
+    .name = "Level 1",
+    .background = {0.1f, 0.2f, 0.4f},
+    .waypoints = waypoints_arr,
+    .skybox = Optional<std::string>::empty(),
+    .maxObjects = 256
 };
 ```
 
 ## Build-time integration
 
-The typical workflow is to run `cxgen` as a custom build step so the generated header is always in sync with the YAML and struct:
+The typical workflow is to run `cxgn` as a custom build step so the generated header is always in sync with the YAML and struct:
 
 ```cmake
 add_custom_command(
     OUTPUT  ${CMAKE_CURRENT_BINARY_DIR}/config.gen.hpp
-    COMMAND cxgen
+    COMMAND cxgn
             --yaml   ${CMAKE_CURRENT_SOURCE_DIR}/config.yaml
             --header ${CMAKE_CURRENT_SOURCE_DIR}/Config.hpp
             --output ${CMAKE_CURRENT_BINARY_DIR}/config.gen.hpp
@@ -81,13 +125,13 @@ target_sources(my_config INTERFACE ${CMAKE_CURRENT_BINARY_DIR}/config.gen.hpp)
 target_include_directories(my_config INTERFACE ${CMAKE_CURRENT_BINARY_DIR})
 ```
 
-CMake will re-run `cxgen` automatically whenever `config.yaml` or `Config.hpp` changes. Your application links against `my_config` and includes `config.gen.hpp` — it has no dependency on `libyaml` or any YAML parser at runtime.
+CMake will re-run `cxgn` automatically whenever `config.yaml` or `Config.hpp` changes. Your application links against `my_config` and includes `config.gen.hpp` — it has no dependency on `libyaml` or any YAML parser at runtime.
 
-## What cxgen supports
+## What cxgn supports
 
 ### C++ header parsing
 
-`cxgen` parses C++ headers and extracts struct metadata for code generation:
+`cxgn` parses C++ headers and extracts struct metadata for code generation:
 
 - Multiple `struct` definitions in the same header
 - Recursive `#include` following for relative includes
@@ -95,7 +139,7 @@ CMake will re-run `cxgen` automatically whenever `config.yaml` or `Config.hpp` c
 - Default field values such as `bool enabled = true;`
 - Multi-declarations such as `float x, y, z;`
 - Nested struct references where one field type is another parsed struct
-- Wrapper field detection for `Array<T>`, `Optional<T>`, and `OneOf<A, B>`
+- Wrapper field detection for `Array<T>`, `Optional<T>`, and `std::variant<T...>`
 - Builtin type recognition for all standard integer, float, bool, and string types:
   - `int`, `unsigned int`, `short`, `unsigned short`
   - `long`, `unsigned long`, `long long`, `unsigned long long`
@@ -121,9 +165,9 @@ The generator maps YAML values onto the parsed struct model and emits C++ initia
 | scalar              | `Optional<T>{value}`                    |
 | sequence            | `Array<T>{backing, count}`              |
 | mapping             | nested struct initializer               |
-| scalar or mapping   | `OneOf<A, B>{std::in_place_index<N>, …}`|
+| scalar or mapping   | `std::variant<T...>{std::in_place_index<N>, …}`|
 
-`OneOf<A, B>` selection is shape-based: a scalar picks the non-struct alternative (index 0), a mapping picks the struct alternative (index 1).
+`std::variant<T...>` selection is shape-based: a scalar picks the first non-struct alternative, a mapping picks the first struct alternative.
 
 ### Naming
 
@@ -137,9 +181,9 @@ The included wrapper headers are part of the supported model:
 
 - `Array<T>` — non-owning, `constexpr`-friendly array view backed by generated static storage
 - `Optional<T>` — `constexpr`-friendly optional with `empty()` support
-- `OneOf<A, B>` — shape-based tagged union, emitted with `std::in_place_index<N>`
+- `std::variant<T...>` — shape-based tagged union, emitted with `std::in_place_index<N>`
 
-For arrays, cxgen emits backing storage in an anonymous namespace before the root config object.
+For arrays, cxgn emits backing storage in an anonymous namespace before the root config object.
 
 ### Defaults, missing values, and extra YAML keys
 
@@ -155,7 +199,7 @@ Warnings also fire for YAML keys that do not exist in the target struct.
 
 ### Error handling
 
-The public C API exposes structured error information through `cg_error`:
+The public C API exposes structured error information through `cxgn_error`:
 
 - error code, message, YAML path, line, column
 
@@ -163,22 +207,22 @@ Error categories include: file not found, parse errors, type mismatch, missing r
 
 ### In-memory generation
 
-In addition to reading YAML from disk, cxgen can generate code from YAML text in memory with `cg_generate_from_yaml_text(...)`. A virtual source path can be supplied for diagnostics.
+In addition to reading YAML from disk, cxgn can generate code from YAML text in memory with `cxgn_generate_from_yaml_text(...)`. A virtual source path can be supplied for diagnostics.
 
 ### Output customization
 
-The generator supports overriding wrapper tokens and emitted constructor syntax via `cg_type_options`.
+The generator supports overriding wrapper tokens and emitted constructor syntax via `cxgn_type_options`.
 
 This allows setups such as:
 
 - parsing `Vec<T>` instead of `Array<T>`
 - parsing `Maybe<T>` instead of `Optional<T>`
-- keeping or renaming `OneOf<A, B>`
+- customizing the `std::variant` wrapper token
 - customizing emitted constructors for arrays and optionals
 
 ### Expression hooks
 
-cxgen can delegate selected field types to an external expression system through `cg_expression_handler`.
+cxgn can delegate selected field types to an external expression system through `cxgn_expression_handler`.
 
 The hook API lets you provide callbacks to:
 
@@ -192,7 +236,13 @@ The generator emits:
 
 - static backing arrays in an anonymous namespace when arrays are present
 - a root object named `config`
-- code of the form `constexpr <RootStruct> config = …;`
+- code of the form `<qualifier> <RootStruct> config = …;`
+
+The qualifier depends on the selected target standard:
+
+- `--std 20` emits `constexpr` for the root object when possible
+- `--std 17` emits `const` for non-literal cases such as `std::string`
+- `--std auto` emits `#if __cplusplus` guards so the generated header works in both modes
 
 The root struct is the last struct parsed from the target header/include graph, so config headers should place the intended top-level struct last.
 
@@ -203,12 +253,13 @@ The bundled `tests/fixtures/all_types` fixture exercises every supported type in
 **Header** (`tests/fixtures/all_types.hpp`) — abbreviated:
 
 ```cpp
-#include <cxgen/Array.hpp>
-#include <cxgen/Optional.hpp>
-#include <cxgen/OneOf.hpp>
+#include <cxgn/Array.hpp>
+#include <cxgn/Optional.hpp>
+#include <variant>
 #include <string>
 #include <string_view>
 #include <cstdint>
+#include "shapes.hpp"
 
 struct Point2D { int x; int y; };
 
@@ -226,8 +277,9 @@ struct AllTypesConfig {
     Optional<int>       optIntPresent;
     Optional<int>       optIntAbsent;
 
-    OneOf<int, Point2D> oneOfScalar;   // scalar → index 0
-    OneOf<int, Point2D> oneOfMapping;  // mapping → index 1
+    std::variant<int, Point2D> variantScalar;   // scalar → index 0
+    std::variant<int, Point2D> variantMapping;  // mapping → index 1
+    std::variant<Circle, Rectangle> shape;      // mapping → first struct alternative
 
     Point2D nested;
 };
@@ -241,7 +293,7 @@ i64_val:   9000000000000
 float_val: 3.14
 double_val: 2.71828182845
 bool_true:  true
-str_val:   "hello cxgen"
+str_val:   "hello cxgn"
 
 int_array: [1, 2, 3, 4, 5]
 str_array: ["alpha", "beta", "gamma"]
@@ -249,10 +301,13 @@ str_array: ["alpha", "beta", "gamma"]
 opt_int_present: 99
 opt_int_absent:  null
 
-one_of_scalar:  7
-one_of_mapping:
+variant_scalar:  7
+variant_mapping:
   x: 10
   y: 20
+
+shape:
+  radius: 12.5
 
 nested:
   x: 3
@@ -262,14 +317,20 @@ nested:
 **Generated output** (`all_types.gen.hpp`):
 
 ```cpp
+// GENERATED FILE - DO NOT EDIT
+// Source YAML: tests/fixtures/all_types.yaml
+// Source Header: tests/fixtures/all_types.hpp
 #pragma once
+#include <variant>
 #include "tests/fixtures/all_types.hpp"
 
 namespace {
-static constexpr int _backing_0_data[] = {1, 2, 3, 4, 5};
-static constexpr size_t _backing_0_count = 5;
-static constexpr std::string _backing_2_data[] = {"alpha", "beta", "gamma"};
-static constexpr size_t _backing_2_count = 3;
+static constexpr char _spool_0[] = "hello cxgn";
+static constexpr char _spool_1[] = "alpha";
+static constexpr char _spool_2[] = "beta";
+static constexpr char _spool_3[] = "gamma";
+static constexpr int _backing_AllTypesConfig_intArray_data[] = {1, 2, 3, 4, 5};
+static constexpr std::string _backing_AllTypesConfig_strArray_data[] = {_spool_1, _spool_2, _spool_3};
 } // namespace
 
 constexpr AllTypesConfig config = {
@@ -278,13 +339,14 @@ constexpr AllTypesConfig config = {
     3.14,                                            // floatVal
     2.71828182845,                                   // doubleVal
     true,                                            // boolTrue
-    "hello cxgen",                                   // strVal
-    Array<int>{_backing_0_data, _backing_0_count},   // intArray
-    Array<std::string>{_backing_2_data, _backing_2_count}, // strArray
+    _spool_0,                                        // strVal
+    Array<int>{_backing_AllTypesConfig_intArray_data, 5},   // intArray
+    Array<std::string>{_backing_AllTypesConfig_strArray_data, 3}, // strArray
     Optional<int>{99},                               // optIntPresent
     Optional<int>::empty(),                          // optIntAbsent
-    OneOf<int, Point2D>{std::in_place_index<0>, 7},  // oneOfScalar
-    OneOf<int, Point2D>{std::in_place_index<1>, Point2D{10, 20}}, // oneOfMapping
+    std::variant<int, Point2D>{std::in_place_index<0>, 7},  // variantScalar
+    std::variant<int, Point2D>{std::in_place_index<1>, Point2D{10, 20}}, // variantMapping
+    std::variant<Circle, Rectangle>{std::in_place_index<0>, Circle{12.5}}, // shape
     {3, 4}                                           // nested
 };
 ```
@@ -306,8 +368,9 @@ static_assert(config.optIntPresent);
 static_assert(*config.optIntPresent == 99);
 static_assert(!config.optIntAbsent);
 
-static_assert(config.oneOfScalar.index() == 0);   // holds int
-static_assert(config.oneOfMapping.index() == 1);  // holds Point2D
+static_assert(config.variantScalar.index() == 0);   // holds int
+static_assert(config.variantMapping.index() == 1);  // holds Point2D
+static_assert(config.shape.index() == 0);           // holds Circle
 
 static_assert(config.nested.x == 3);
 static_assert(config.nested.y == 4);
@@ -321,7 +384,7 @@ int main() {
 
 ## Build and test
 
-`cxgen` uses CMake and requires `libyaml` for YAML-backed generation.
+`cxgn` uses CMake and requires `libyaml` for YAML-backed generation.
 
 ```bash
 cmake -B build
@@ -345,7 +408,7 @@ By default, `cmake --install build` uses CMake's standard system prefix, typical
 sudo cmake --install build
 ```
 
-Use this when you want `cxgen` installed globally under `/usr/local/bin`, `/usr/local/lib`, and `/usr/local/include`.
+Use this when you want `cxgn` installed globally under `/usr/local/bin`, `/usr/local/lib`, and `/usr/local/include`.
 
 If you see a permission error such as `Permission denied` while installing to `/usr/local`, either rerun the install command with `sudo` or use a user-local prefix instead.
 
@@ -367,7 +430,7 @@ Add the `export PATH=…` line to your shell profile (`~/.bashrc`, `~/.zshrc`) t
 ## CLI usage
 
 ```text
-cxgen --yaml <file> --header <file> --output <file> [--verbose]
+cxgn --yaml <file> --header <file> --output <file> [--std <ver>] [--verbose]
 ```
 
 Options:
@@ -377,63 +440,77 @@ Options:
 | `--yaml`          | `-y`  | YAML configuration file                   |
 | `--header`        | `-h`  | C++ header file with struct definitions   |
 | `--output`        | `-o`  | Output file for generated code            |
+| `--std`           |       | Target C++ standard: `17`, `20`, or `auto` |
 | `--verbose`       | `-v`  | Enable verbose output                     |
 | `--help`          |       | Show usage                                |
 
 Example:
 
 ```bash
-cxgen --yaml config.yaml --header Config.hpp --output config.gen.hpp
+cxgn --yaml config.yaml --header Config.hpp --output config.gen.hpp
+```
+
+Examples with standard selection:
+
+```bash
+cxgn --yaml config.yaml --header Config.hpp --output config.gen.hpp --std 17
+cxgn --yaml config.yaml --header Config.hpp --output config.gen.hpp --std auto --verbose
 ```
 
 Using the bundled all-types fixture:
 
 ```bash
-cxgen \
+cxgn \
   --yaml tests/fixtures/all_types.yaml \
   --header tests/fixtures/all_types.hpp \
   --output all_types.gen.hpp
 ```
 
-The CLI writes a generated header containing a `#pragma once`, an `#include` of the source header, and the generated body.
+The CLI writes a generated header containing:
 
-To compile code that includes your generated header, add the cxgen public headers to the include path:
+- file banner comments with the YAML and header source paths
+- `#pragma once`
+- `#include <variant>`
+- an `#include` of the source header, rewritten relative to the output file
+- the generated body from `cxgn_generate(...)`
+
+To compile code that includes your generated header, add the cxgn public headers to the include path:
 
 ```bash
 c++ -Iinclude -I. -c all_types.gen.hpp
 ```
 
-If you installed cxgen with `cmake --install`, use the install prefix's `include/` directory instead.
+If you installed cxgn with `cmake --install`, use the install prefix's `include/` directory instead.
 
 ## C API example
 
 ```c
-#include <cxgen/cxgen.h>
+#include <cxgn/cxgn.h>
 
 int main(void) {
-    cg_error err = {0};
+    cxgn_error err = {0};
 
-    cg_string_utils* utils = cg_string_utils_new();
-    cg_struct_parser* parser = cg_struct_parser_new(utils);
+    cxgn_string_utils* utils = cxgn_string_utils_new();
+    cxgn_struct_parser* parser = cxgn_struct_parser_new(utils);
 
-    if (!cg_struct_parser_parse_file(parser, "Config.hpp", &err)) {
+    if (!cxgn_struct_parser_parse_file(parser, "Config.hpp", &err)) {
         fprintf(stderr, "parse error: %s\n", err.message);
         return 1;
     }
 
-    cg_generator* gen = cg_generator_new(parser, utils);
-    cg_output* out = cg_generate(gen, "config.yaml", "Config.hpp", &err);
+    cxgn_generator* gen = cxgn_generator_new(parser, utils);
+    cxgn_output* out = cxgn_generate(gen, "config.yaml", "Config.hpp", &err);
     if (!out) {
         fprintf(stderr, "generate error: %s\n", err.message);
         return 1;
     }
 
-    printf("%s\n", cg_output_get_code(out));
+    printf("%s\n", cxgn_output_get_code(out));
 
-    cg_output_free(out);
-    cg_generator_free(gen);
-    cg_struct_parser_free(parser);
-    cg_string_utils_free(utils);
+    cxgn_output_free(out);
+    cxgn_generator_free(gen);
+    cxgn_struct_parser_free(parser);
+    cxgn_string_utils_free(utils);
     return 0;
 }
 ```
@@ -442,10 +519,10 @@ int main(void) {
 
 | Path                        | Contents                                                  |
 | --------------------------- | --------------------------------------------------------- |
-| `include/cxgen/cxgen.h`     | Public C API                                              |
-| `include/cxgen/Array.hpp`   | `constexpr`-friendly array view                          |
-| `include/cxgen/Optional.hpp`| `constexpr`-friendly optional                            |
-| `include/cxgen/OneOf.hpp`   | Shape-based tagged union                                  |
+| `include/cxgn/cxgn.h`     | Public C API                                              |
+| `include/cxgn/Array.hpp`   | `constexpr`-friendly array view                          |
+| `include/cxgn/Optional.hpp`| `constexpr`-friendly optional                            |
+| `include/cxgn/Array.hpp` and `Optional.hpp` | Constexpr-friendly wrappers                                  |
 | `src/`                      | Parser, generator, utilities, CLI                         |
 | `tests/`                    | Coverage for parsing, generation, naming, warnings, types |
 
@@ -455,4 +532,4 @@ See [`LICENSE`](LICENSE).
 
 ## Scope and limitations
 
-cxgen is best suited to configuration-oriented C++ structs with simple field declarations. It does not aim to be a full C++ parser. The features described here reflect what is covered by the current parser and tests — not arbitrary C++ syntax.
+cxgn is best suited to configuration-oriented C++ structs with simple field declarations. It does not aim to be a full C++ parser. The features described here reflect what is covered by the current parser and tests — not arbitrary C++ syntax.

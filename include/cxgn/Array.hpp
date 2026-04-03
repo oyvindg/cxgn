@@ -1,16 +1,16 @@
 /**
  * @file Array.hpp
- * @brief Constexpr array view for cxgen generated code.
+ * @brief Constexpr array view for cxgn generated code.
  *
  * A lightweight, constexpr-friendly array view that references
- * static backing storage. Used by cxgen to generate Array<T> fields.
+ * static backing storage. Used by cxgn to generate Array<T> fields.
  */
 
 #pragma once
 
 #include <cstddef>
 
-namespace cxgen {
+namespace cxgn {
 
 /**
  * @brief Constexpr array view over static data.
@@ -75,7 +75,7 @@ struct Array {
     [[nodiscard]] constexpr const T& back() const noexcept { return data_[size_ - 1]; }
 };
 
-} // namespace cxgen
+} // namespace cxgn
 
 /* Global namespace alias for convenience in generated code */
-using cxgen::Array;
+using cxgn::Array;

@@ -1,20 +1,21 @@
 #pragma once
-#include <cxgen/Array.hpp>
-#include <cxgen/Optional.hpp>
-#include <cxgen/OneOf.hpp>
+#include <cxgn/Array.hpp>
+#include <cxgn/Optional.hpp>
+#include <variant>
 #include <string>
 #include <string_view>
 #include <cstdint>
 #include <cstddef>
+#include "shapes.hpp"
 
-/** Nested struct used to test OneOf mapping and nested struct generation. */
+/** Nested struct used to test std::variant mapping and nested struct generation. */
 struct Point2D {
     int x;
     int y;
 };
 
 /**
- * Exercises every YAML-representable type that cxgen can generate.
+ * Exercises every YAML-representable type that cxgn can generate.
  *
  * YAML type → C++ field(s):
  *   integer  → int, long, short, int32_t, int64_t, size_t,
@@ -26,7 +27,8 @@ struct Point2D {
  *   null     → Optional<T> (absent)
  *   scalar   → Optional<T> (present)
  *   sequence → Array<T>
- *   mapping  → nested struct, OneOf<A, Struct> (index 1)
+ *   mapping  → nested struct, std::variant<A, Struct> (index 1),
+ *               std::variant<StructA, StructB> (Circle case)
  */
 struct AllTypesConfig {
     /* ── Integer types (YAML integer) ──────────────────────────────────── */
@@ -69,9 +71,10 @@ struct AllTypesConfig {
     Optional<double> optDoublePresent;
     Optional<int>    optIntAbsent;
 
-    /* ── OneOf: scalar → index 0, mapping → index 1 ─────────────────────── */
-    OneOf<int, Point2D> oneOfScalar;
-    OneOf<int, Point2D> oneOfMapping;
+    /* ── std::variant: scalar → index 0, mapping → index 1 ──────────────── */
+    std::variant<int, Point2D> variantScalar;
+    std::variant<int, Point2D> variantMapping;
+    std::variant<Circle, Rectangle> shape;
 
     /* ── Nested struct (YAML mapping) ───────────────────────────────────── */
     Point2D nested;

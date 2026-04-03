@@ -1,7 +1,7 @@
 #pragma once
 
-#include <cxgen/Array.hpp>
-#include <cxgen/Optional.hpp>
+#include <cxgn/Array.hpp>
+#include <cxgn/Optional.hpp>
 
 template<typename T>
 using Vec = Array<T>;

@@ -1,9 +1,9 @@
 /**
  * @file warning_colors.test.c
- * @brief Tests for warning color output in cxgen code generation.
+ * @brief Tests for warning color output in cxgn code generation.
  */
 
-#include <cxgen/cxgen.h>
+#include <cxgn/cxgn.h>
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -52,11 +52,11 @@ static char* fixture_path(const char* name) {
     return NULL;
 }
 
-static char* capture_stderr_from_generate(cg_generator* gen,
+static char* capture_stderr_from_generate(cxgn_generator* gen,
                                           const char* yaml_path,
                                           const char* header_path,
-                                          cg_error* err,
-                                          cg_output** out) {
+                                          cxgn_error* err,
+                                          cxgn_output** out) {
     fflush(stderr);
 
     const int saved_stderr = dup(STDERR_FILENO);
@@ -70,7 +70,7 @@ static char* capture_stderr_from_generate(cg_generator* gen,
     const int dup_ok = dup2(tmp_fd, STDERR_FILENO);
     assert(dup_ok >= 0);
 
-    *out = cg_generate(gen, yaml_path, header_path, err);
+    *out = cxgn_generate(gen, yaml_path, header_path, err);
 
     fflush(stderr);
     assert(dup2(saved_stderr, STDERR_FILENO) >= 0);
@@ -91,16 +91,16 @@ static char* capture_stderr_from_generate(cg_generator* gen,
 }
 
 static void test_missing_field_is_red_warning(void) {
-    cg_string_utils* utils = cg_string_utils_new();
-    cg_struct_parser* parser = cg_struct_parser_new(utils);
-    cg_error err = {0};
+    cxgn_string_utils* utils = cxgn_string_utils_new();
+    cxgn_struct_parser* parser = cxgn_struct_parser_new(utils);
+    cxgn_error err = {0};
     char* header_path = fixture_path("warning_missing.hpp");
     char* yaml_path = fixture_path("warning_missing.yaml");
 
-    assert(cg_struct_parser_parse_file(parser, header_path, &err));
+    assert(cxgn_struct_parser_parse_file(parser, header_path, &err));
 
-    cg_generator* gen = cg_generator_new(parser, utils);
-    cg_output* output = NULL;
+    cxgn_generator* gen = cxgn_generator_new(parser, utils);
+    cxgn_output* output = NULL;
     char* stderr_text = capture_stderr_from_generate(
         gen, yaml_path, header_path, &err, &output);
 
@@ -113,24 +113,24 @@ static void test_missing_field_is_red_warning(void) {
     free(stderr_text);
     free(yaml_path);
     free(header_path);
-    cg_output_free(output);
-    cg_generator_free(gen);
-    cg_struct_parser_free(parser);
-    cg_string_utils_free(utils);
+    cxgn_output_free(output);
+    cxgn_generator_free(gen);
+    cxgn_struct_parser_free(parser);
+    cxgn_string_utils_free(utils);
     printf("  ✓ test_missing_field_is_red_warning\n");
 }
 
 static void test_unknown_yaml_field_is_yellow_warning(void) {
-    cg_string_utils* utils = cg_string_utils_new();
-    cg_struct_parser* parser = cg_struct_parser_new(utils);
-    cg_error err = {0};
+    cxgn_string_utils* utils = cxgn_string_utils_new();
+    cxgn_struct_parser* parser = cxgn_struct_parser_new(utils);
+    cxgn_error err = {0};
     char* header_path = fixture_path("warning_extra.hpp");
     char* yaml_path = fixture_path("warning_extra.yaml");
 
-    assert(cg_struct_parser_parse_file(parser, header_path, &err));
+    assert(cxgn_struct_parser_parse_file(parser, header_path, &err));
 
-    cg_generator* gen = cg_generator_new(parser, utils);
-    cg_output* output = NULL;
+    cxgn_generator* gen = cxgn_generator_new(parser, utils);
+    cxgn_output* output = NULL;
     char* stderr_text = capture_stderr_from_generate(
         gen, yaml_path, header_path, &err, &output);
 
@@ -144,10 +144,10 @@ static void test_unknown_yaml_field_is_yellow_warning(void) {
     free(stderr_text);
     free(yaml_path);
     free(header_path);
-    cg_output_free(output);
-    cg_generator_free(gen);
-    cg_struct_parser_free(parser);
-    cg_string_utils_free(utils);
+    cxgn_output_free(output);
+    cxgn_generator_free(gen);
+    cxgn_struct_parser_free(parser);
+    cxgn_string_utils_free(utils);
     printf("  ✓ test_unknown_yaml_field_is_yellow_warning\n");
 }
 

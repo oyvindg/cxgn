@@ -3,17 +3,19 @@
 // Source Header: tests/fixtures/all_types.hpp
 #pragma once
 
+#include <variant>
 #include "fixtures/all_types.hpp"
 
 namespace {
-static constexpr int _backing_0_data[] = {1, 2, 3, 4, 5};
-static constexpr size_t _backing_0_count = 5;
-static constexpr double _backing_1_data[] = {1.1, 2.2, 3.3};
-static constexpr size_t _backing_1_count = 3;
-static constexpr std::string _backing_2_data[] = {"alpha", "beta", "gamma"};
-static constexpr size_t _backing_2_count = 3;
-static constexpr bool _backing_3_data[] = {true, false, true};
-static constexpr size_t _backing_3_count = 3;
+static constexpr char _spool_0[] = "hello cxgn";
+static constexpr char _spool_1[] = "string_view";
+static constexpr char _spool_2[] = "alpha";
+static constexpr char _spool_3[] = "beta";
+static constexpr char _spool_4[] = "gamma";
+static constexpr double _backing_AllTypesConfig_doubleArray_data[] = {1.1, 2.2, 3.3};
+static constexpr std::string _backing_AllTypesConfig_strArray_data[] = {_spool_2, _spool_3, _spool_4};
+static constexpr int _backing_AllTypesConfig_intArray_data[] = {1, 2, 3, 4, 5};
+static constexpr bool _backing_AllTypesConfig_boolArray_data[] = {true, false, true};
 } // namespace
 
 constexpr AllTypesConfig config = {
@@ -36,20 +38,20 @@ constexpr AllTypesConfig config = {
     1.41421356237,  // ldVal
     true,  // boolTrue
     false,  // boolFalse
-    "hello cxgen",  // strVal
-    "string_view",  // svVal
-    Array<int>{_backing_0_data, _backing_0_count},  // intArray
-    Array<double>{_backing_1_data, _backing_1_count},  // doubleArray
-    Array<std::string>{_backing_2_data, _backing_2_count},  // strArray
-    Array<bool>{_backing_3_data, _backing_3_count},  // boolArray
+    _spool_0,  // strVal
+    _spool_1,  // svVal
+    Array<int>{_backing_AllTypesConfig_intArray_data, 5},  // intArray
+    Array<double>{_backing_AllTypesConfig_doubleArray_data, 3},  // doubleArray
+    Array<std::string>{_backing_AllTypesConfig_strArray_data, 3},  // strArray
+    Array<bool>{_backing_AllTypesConfig_boolArray_data, 3},  // boolArray
     Optional<int>{99},  // optIntPresent
     Optional<double>{0.5},  // optDoublePresent
     Optional<int>::empty(),  // optIntAbsent
-    OneOf<int, Point2D>{std::in_place_index<0>, 7},  // oneOfScalar
-    OneOf<int, Point2D>{std::in_place_index<1>, Point2D{
+    std::variant<int, Point2D>{std::in_place_index<0>, 7},  // variantScalar
+    std::variant<int, Point2D>{std::in_place_index<1>, Point2D{
         10,  // x
         20  // y
-    }},  // oneOfMapping
+    }},  // variantMapping
     {
         3,  // x
         4  // y

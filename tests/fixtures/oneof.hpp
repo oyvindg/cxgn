@@ -1,7 +1,7 @@
 #pragma once
 
-#include <cxgen/Array.hpp>
-#include <cxgen/OneOf.hpp>
+#include <cxgn/Array.hpp>
+#include <variant>
 #include <string>
 
 struct RuleGroup {
@@ -10,6 +10,6 @@ struct RuleGroup {
     Array<std::string> must_not;
 };
 
-struct OneOfConfig {
-    Array<OneOf<std::string, RuleGroup>> rules;
+struct VariantConfig {
+    Array<std::variant<std::string, RuleGroup>> rules;
 };

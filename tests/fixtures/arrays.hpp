@@ -1,5 +1,5 @@
 #pragma once
-#include <cxgen/Array.hpp>
+#include <cxgn/Array.hpp>
 #include <string>
 
 struct ItemConfig {

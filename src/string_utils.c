@@ -1,6 +1,6 @@
 /**
  * @file string_utils.c
- * @brief Case conversion utilities for cxgen.
+ * @brief Case conversion utilities for cxgn.
  *
  * Provides snake_case, camelCase, and PascalCase conversions
  * for mapping YAML keys to C++ struct fields.
@@ -14,46 +14,46 @@
  * ═══════════════════════════════════════════════════════════════════════════ */
 
 static const char* const error_strings[] = {
-    [CG_OK] = "Success",
-    [CG_ERR_FILE_NOT_FOUND] = "File not found",
-    [CG_ERR_PARSE_ERROR] = "Parse error",
-    [CG_ERR_TYPE_MISMATCH] = "Type mismatch",
-    [CG_ERR_MISSING_FIELD] = "Missing required field",
-    [CG_ERR_UNKNOWN_STRUCT] = "Unknown struct type",
-    [CG_ERR_UNKNOWN_TYPE] = "Unknown type",
-    [CG_ERR_YAML_ERROR] = "YAML parsing error",
-    [CG_ERR_OUT_OF_MEMORY] = "Out of memory",
-    [CG_ERR_EXPRESSION_ERROR] = "Expression error"
+    [CXGN_OK] = "Success",
+    [CXGN_ERR_FILE_NOT_FOUND] = "File not found",
+    [CXGN_ERR_PARSE_ERROR] = "Parse error",
+    [CXGN_ERR_TYPE_MISMATCH] = "Type mismatch",
+    [CXGN_ERR_MISSING_FIELD] = "Missing required field",
+    [CXGN_ERR_UNKNOWN_STRUCT] = "Unknown struct type",
+    [CXGN_ERR_UNKNOWN_TYPE] = "Unknown type",
+    [CXGN_ERR_YAML_ERROR] = "YAML parsing error",
+    [CXGN_ERR_OUT_OF_MEMORY] = "Out of memory",
+    [CXGN_ERR_EXPRESSION_ERROR] = "Expression error"
 };
 
-const char* cg_error_string(cg_error_code code) {
-    if (code >= 0 && code <= CG_ERR_EXPRESSION_ERROR) {
+const char* cxgn_error_string(cxgn_error_code code) {
+    if (code >= 0 && code <= CXGN_ERR_EXPRESSION_ERROR) {
         return error_strings[code];
     }
     return "Unknown error";
 }
 
-void cg_error_clear(cg_error* err) {
+void cxgn_error_clear(cxgn_error* err) {
     if (!err) return;
     if (err->needs_free && err->message) {
         free((void*)err->message);
     }
-    cg_error_init(err);
+    cxgn_error_init(err);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * String Utils Creation/Destruction
  * ═══════════════════════════════════════════════════════════════════════════ */
 
-cg_string_utils* cg_string_utils_new(void) {
-    cg_string_utils* utils = (cg_string_utils*)malloc(sizeof(cg_string_utils));
+cxgn_string_utils* cxgn_string_utils_new(void) {
+    cxgn_string_utils* utils = (cxgn_string_utils*)malloc(sizeof(cxgn_string_utils));
     if (utils) {
         utils->placeholder = 0;
     }
     return utils;
 }
 
-void cg_string_utils_free(cg_string_utils* utils) {
+void cxgn_string_utils_free(cxgn_string_utils* utils) {
     free(utils);
 }
 
@@ -102,11 +102,11 @@ static char to_lower(char c) {
  * Case Conversion Functions
  * ═══════════════════════════════════════════════════════════════════════════ */
 
-char* cg_to_snake_case(const cg_string_utils* utils, const char* s) {
+char* cxgn_to_snake_case(const cxgn_string_utils* utils, const char* s) {
     (void)utils;  /* Currently unused */
 
     if (!s) return NULL;
-    if (!*s) return cg_strdup("");
+    if (!*s) return cxgn_strdup("");
 
     /* Calculate required length (worst case: every char needs underscore) */
     size_t len = strlen(s);
@@ -150,11 +150,11 @@ char* cg_to_snake_case(const cg_string_utils* utils, const char* s) {
     return result;
 }
 
-char* cg_to_camel_case(const cg_string_utils* utils, const char* s) {
+char* cxgn_to_camel_case(const cxgn_string_utils* utils, const char* s) {
     (void)utils;  /* Currently unused */
 
     if (!s) return NULL;
-    if (!*s) return cg_strdup("");
+    if (!*s) return cxgn_strdup("");
 
     size_t len = strlen(s);
     char* result = (char*)malloc(len + 1);
@@ -191,11 +191,11 @@ char* cg_to_camel_case(const cg_string_utils* utils, const char* s) {
     return result;
 }
 
-char* cg_to_pascal_case(const cg_string_utils* utils, const char* s) {
+char* cxgn_to_pascal_case(const cxgn_string_utils* utils, const char* s) {
     (void)utils;  /* Currently unused */
 
     if (!s) return NULL;
-    if (!*s) return cg_strdup("");
+    if (!*s) return cxgn_strdup("");
 
     size_t len = strlen(s);
     char* result = (char*)malloc(len + 1);

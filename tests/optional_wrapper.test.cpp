@@ -12,7 +12,7 @@
  * - constexpr correctness (static_assert)
  */
 
-#include <cxgen/Optional.hpp>
+#include <cxgn/Optional.hpp>
 #include <cassert>
 #include <iostream>
 #include <string>

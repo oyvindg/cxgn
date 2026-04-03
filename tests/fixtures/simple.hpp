@@ -1,7 +1,7 @@
 #pragma once
 
 /**
- * @brief Simple test struct for cxgen.
+ * @brief Simple test struct for cxgn.
  */
 #include <string>
 struct SimpleConfig {
