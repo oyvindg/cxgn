@@ -19,7 +19,7 @@ static void test_multi_decl_parsing(void) {
     cxgn_struct_parser* parser = cxgn_struct_parser_new(utils);
     cxgn_error err = {0};
 
-    assert(cxgn_struct_parser_parse_file(parser, "fixtures/Vec3.hpp", &err));
+    assert(cxgn_struct_parser_parse_file(parser, "fixtures/Vec3.h", &err));
 
     const cxgn_struct_info* info = cxgn_struct_parser_find_struct(parser, "Vec3");
     assert(info != NULL);
@@ -48,7 +48,7 @@ static void test_methods_are_ignored(void) {
     cxgn_struct_parser* parser = cxgn_struct_parser_new(utils);
     cxgn_error err = {0};
 
-    assert(cxgn_struct_parser_parse_file(parser, "fixtures/Vec3.hpp", &err));
+    assert(cxgn_struct_parser_parse_file(parser, "fixtures/Vec3.h", &err));
 
     const cxgn_struct_info* info = cxgn_struct_parser_find_struct(parser, "Vec3");
     assert(info != NULL);
@@ -69,11 +69,11 @@ static void test_vec3_generation(void) {
     cxgn_struct_parser* parser = cxgn_struct_parser_new(utils);
     cxgn_error err = {0};
 
-    cxgn_struct_parser_parse_file(parser, "fixtures/Vec3.hpp", &err);
+    cxgn_struct_parser_parse_file(parser, "fixtures/Vec3.h", &err);
 
     cxgn_generator* gen = cxgn_generator_new(parser, utils);
     cxgn_output* output = cxgn_generate(gen, "fixtures/Vec3.yaml",
-                                     "fixtures/Vec3.hpp", &err);
+                                     "fixtures/Vec3.h", &err);
     assert(output != NULL);
 
     const char* code = cxgn_output_get_code(output);

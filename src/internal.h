@@ -79,14 +79,26 @@ struct cxgn_field_info {
     char* name;               /**< Field name (owned) */
     char* type;               /**< Full type string (owned) */
     char* default_value;      /**< Default value or NULL (owned) */
-    bool is_array;            /**< true if Array<T> */
+    bool is_array;            /**< true if cxgn array typedef */
     char* array_elem_type;    /**< Element type if array (owned) */
-    bool is_optional;         /**< true if Optional<T> */
+    bool is_optional;         /**< true if cxgn optional typedef */
     char* optional_value_type; /**< Value type if optional (owned) */
-    bool is_variant;             /**< true if std::variant<T...> */
+    bool is_variant;             /**< Reserved for future tagged unions */
     char** variant_types;      /**< Owned array of type strings */
     size_t variant_type_count; /**< Number of variant types */
 };
+
+typedef enum {
+    CXGN_ALIAS_ARRAY = 1,
+    CXGN_ALIAS_OPTIONAL = 2,
+    CXGN_ALIAS_SCALAR = 3  /**< Simple typedef — resolves the underlying type   */
+} cxgn_type_alias_kind;
+
+typedef struct {
+    char* name;
+    char* value_type;
+    cxgn_type_alias_kind kind;
+} cxgn_type_alias;
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * Struct Info
@@ -118,6 +130,9 @@ struct cxgn_struct_parser {
     char** parsed_files;            /**< Already parsed files (owned) */
     size_t parsed_file_count;
     size_t parsed_file_capacity;
+    cxgn_type_alias* aliases;         /**< Parsed helper typedefs/macros */
+    size_t alias_count;
+    size_t alias_capacity;
 };
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -132,6 +147,8 @@ struct cxgn_generator {
     const cxgn_string_utils* utils;    /**< Borrowed reference */
     cxgn_expression_handler expr_handler; /**< Expression handler (copied) */
     bool has_expr_handler;
+    char* helpers_header;
+    char* symbol_prefix;             /**< Prefix applied to emitted variable names (owned, NULL = none) */
     char* array_wrapper;             /**< Wrapper token for arrays */
     char* optional_wrapper;          /**< Wrapper token for optionals */
     char* variant_wrapper;           /**< Wrapper token for std::variant */
@@ -153,6 +170,46 @@ struct cxgn_output {
     char* code;               /**< Generated code (owned) */
     size_t length;            /**< Code length */
     size_t capacity;          /**< Buffer capacity */
+};
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Batch
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Glob path list (shared between glob.c and batch.c)
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * @brief Dynamic array of file paths used during glob expansion.
+ */
+typedef struct {
+    char** paths;
+    size_t count;
+    size_t capacity;
+} path_list_t;
+
+/**
+ * @brief Expand a glob pattern into a sorted list of matching file paths.
+ *
+ * Supports *, ?, brackets, and ** (recursive descent).
+ * Zero matches is not an error.
+ *
+ * @param pattern  Glob pattern
+ * @param out      Accumulator; matched paths are appended (not replaced)
+ * @param err      Error output (can be NULL)
+ * @return true on success (even if no matches), false on OOM
+ */
+bool cxgn_glob_expand(const char* pattern, path_list_t* out, cxgn_error* err);
+
+/**
+ * @brief Batch handle accumulating input files before combined generation.
+ */
+struct cxgn_batch {
+    cxgn_generator* gen;   /**< Borrowed generator reference */
+    char** yaml_paths;     /**< Owned array of resolved YAML file paths */
+    size_t count;
+    size_t capacity;
 };
 
 /**
@@ -177,6 +234,20 @@ char* cxgn_path_join(const char* dir, const char* file);
  * @return Newly allocated relative path
  */
 char* cxgn_path_relative_to_file(const char* from_path, const char* target_path);
+
+const cxgn_type_alias* cxgn_struct_parser_find_alias(const cxgn_struct_parser* parser,
+                                                     const char* name);
+
+/**
+ * @brief Set the symbol prefix used when emitting variable names.
+ *
+ * Internal API used by batch generation to isolate per-entry symbols.
+ * Pass NULL to clear the prefix (default behaviour).
+ *
+ * @param gen Generator instance
+ * @param prefix Prefix string or NULL
+ */
+void cxgn_generator_set_symbol_prefix(cxgn_generator* gen, const char* prefix);
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * Internal Helper Functions

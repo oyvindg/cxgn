@@ -14,7 +14,7 @@ static void test_custom_type_output_options(void) {
     cxgn_struct_parser* parser = cxgn_struct_parser_new(utils);
     cxgn_error err = {0};
 
-    const bool parsed = cxgn_struct_parser_parse_file(parser, "fixtures/type_options.hpp", &err);
+    const bool parsed = cxgn_struct_parser_parse_file(parser, "fixtures/type_options.h", &err);
     assert(parsed);
 
     cxgn_generator* gen = cxgn_generator_new(parser, utils);
@@ -36,7 +36,7 @@ static void test_custom_type_output_options(void) {
         "max_items: null\n";
 
     cxgn_output* out = cxgn_generate_from_yaml_text(
-        gen, yaml_text, "fixtures/type_options.yaml", "fixtures/type_options.hpp", &err);
+        gen, yaml_text, "fixtures/type_options.yaml", "fixtures/type_options.h", &err);
     assert(out != NULL);
 
     const char* code = cxgn_output_get_code(out);

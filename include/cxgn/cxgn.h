@@ -1,10 +1,9 @@
 /**
  * @file cxgn.h
- * @brief C API for cxgn - YAML to constexpr C++ code generator.
+ * @brief C API for cxgn - YAML to generated C headers.
  *
  * Pure C interface for maximum portability and FFI compatibility.
  * Uses libyaml for YAML parsing.
- * Use cxgn.hpp for C++ RAII wrapper.
  */
 
 #ifndef CXGN_H
@@ -54,7 +53,7 @@ typedef enum {
     CXGN_ERR_EXPRESSION_ERROR
 } cxgn_error_code;
 
-typedef struct {
+typedef struct cxgn_error {
     cxgn_error_code code;
     const char* message;          /* Static or allocated, check needs_free */
     const char* path;             /* YAML path where error occurred */
@@ -193,7 +192,7 @@ const char* cxgn_field_get_name(const cxgn_field_info* field);
 const char* cxgn_field_get_default(const cxgn_field_info* field);
 
 /**
- * @brief Check if field is an array (Array<T>).
+ * @brief Check if field is a cxgn array typedef.
  * @param field Field info
  * @return true if array field
  */
@@ -207,7 +206,7 @@ bool cxgn_field_is_array(const cxgn_field_info* field);
 const char* cxgn_field_get_array_element_type(const cxgn_field_info* field);
 
 /**
- * @brief Check if field is optional (Optional<T>).
+ * @brief Check if field is a cxgn optional typedef.
  * @param field Field info
  * @return true if optional field
  */
@@ -221,21 +220,21 @@ bool cxgn_field_is_optional(const cxgn_field_info* field);
 const char* cxgn_field_get_optional_value_type(const cxgn_field_info* field);
 
 /**
- * @brief Check if field is std::variant<T...>.
+ * @brief Check if field is a tagged-union field.
  * @param field Field info
- * @return true if std::variant field
+ * @return true if variant metadata is present
  */
 bool cxgn_field_is_variant(const cxgn_field_info* field);
 
 /**
- * @brief Get number of types in std::variant.
+ * @brief Get number of types in a tagged union.
  * @param field Field info
- * @return Type count, or 0 if not std::variant
+ * @return Type count, or 0 if not a tagged union
  */
 size_t cxgn_field_get_variant_type_count(const cxgn_field_info* field);
 
 /**
- * @brief Get a type from std::variant by index.
+ * @brief Get a tagged-union type by index.
  * @param field Field info
  * @param index Type index (0-based)
  * @return Type string or NULL if out of range
@@ -301,9 +300,9 @@ cxgn_struct_parser* cxgn_struct_parser_new(const cxgn_string_utils* utils);
 void cxgn_struct_parser_free(cxgn_struct_parser* parser);
 
 /**
- * @brief Parse header file and extract struct definitions.
+ * @brief Parse header file and extract C struct definitions.
  * @param parser Parser instance
- * @param header_path Path to C++ header file
+ * @param header_path Path to C header file
  * @param err Error output (can be NULL)
  * @return true on success, false on error
  *
@@ -341,15 +340,15 @@ const cxgn_struct_info* cxgn_struct_parser_find_struct(const cxgn_struct_parser*
  * @brief Check if type is a builtin type.
  * @param parser Parser instance
  * @param type Type name
- * @return true if builtin (int, double, bool, std::string, etc.)
+ * @return true if builtin (int, double, bool, const char*, etc.)
  */
 bool cxgn_struct_parser_is_builtin_type(const cxgn_struct_parser* parser, const char* type);
 
 /**
- * @brief Check if type is constexpr-friendly.
+ * @brief Legacy helper kept for API compatibility.
  * @param parser Parser instance
  * @param type Type name
- * @return true if can be used in constexpr context
+ * @return false for non-builtin aggregate helper types
  */
 bool cxgn_struct_parser_is_constexpr_friendly(const cxgn_struct_parser* parser, const char* type);
 
@@ -359,18 +358,23 @@ bool cxgn_struct_parser_is_constexpr_friendly(const cxgn_struct_parser* parser, 
 
 /**
  * @brief Callback to check if a field type should be treated as expression.
- * @param field_type The C++ type of the field
+ * @param field_type The C type of the field
  * @param userdata User-provided context
  * @return true if field contains an expression to be parsed
  */
 typedef bool (*cxgn_is_expression_field_fn)(const char* field_type, void* userdata);
 
 /**
- * @brief Callback to generate C++ code for an expression.
+ * @brief Callback to generate C code for an expression.
  * @param expression The expression string from YAML
  * @param yaml_path YAML path for error reporting
  * @param userdata User-provided context
- * @return Newly allocated C++ code string (caller frees), NULL on error
+ * @return Newly allocated C initializer snippet (caller frees), NULL on error.
+ *
+ * The returned code is inserted directly into a generated struct initializer.
+ * It must therefore be valid pure-C expression syntax for an initializer
+ * context, for example a quoted string literal or a C struct literal.
+ * It must not emit declarations, statements, or C++-only syntax.
  */
 typedef char* (*cxgn_generate_expression_fn)(const char* expression,
                                             const char* yaml_path,
@@ -382,6 +386,9 @@ typedef char* (*cxgn_generate_expression_fn)(const char* expression,
  * @param yaml_path YAML path for error reporting
  * @param userdata User-provided context
  * @return NULL if valid, newly allocated error message otherwise (caller frees)
+ *
+ * When provided, validation runs before generate_code(). If validation fails,
+ * generation aborts with CXGN_ERR_EXPRESSION_ERROR and generate_code() is not called.
  */
 typedef char* (*cxgn_validate_expression_fn)(const char* expression,
                                             const char* yaml_path,
@@ -402,7 +409,7 @@ typedef struct {
  * ═══════════════════════════════════════════════════════════════════════════ */
 
 /**
- * @brief Type and constructor formatting options for generated output.
+ * @brief Legacy type option hooks kept for API compatibility.
  *
  * All fields are optional; NULL keeps existing generator default.
  *
@@ -412,29 +419,26 @@ typedef struct {
  * - optional_value_prefix_fmt: `%s` = value_type
  */
 typedef struct {
-    const char* array_wrapper;             /**< Wrapper token for parsing arrays (default: "Array") */
-    const char* optional_wrapper;          /**< Wrapper token for parsing optionals (default: "Optional") */
-    const char* variant_wrapper;           /**< Wrapper token for parsing std::variant (default: "std::variant") */
-    const char* array_ctor_fmt;            /**< Output ctor format (default: "Array<%s>{%s_data, %s_count}") */
-    const char* optional_empty_fmt;        /**< Empty optional format (default: "Optional<%s>::empty()") */
-    const char* optional_value_prefix_fmt; /**< Optional value prefix (default: "Optional<%s>{") */
-    const char* optional_value_suffix;     /**< Optional value suffix (default: "}") */
+    const char* array_wrapper;
+    const char* optional_wrapper;
+    const char* variant_wrapper;
+    const char* array_ctor_fmt;
+    const char* optional_empty_fmt;
+    const char* optional_value_prefix_fmt;
+    const char* optional_value_suffix;
 } cxgn_type_options;
 
 /* ═══════════════════════════════════════════════════════════════════════════
- * C++ Standard Target
+ * Legacy Output Mode
  * ═══════════════════════════════════════════════════════════════════════════ */
 
 /**
- * @brief Target C++ standard for generated output.
- *
- * Controls whether the generator may emit constructs that require
- * a specific C++ standard (e.g. constexpr std::string requires C++20).
+ * @brief Legacy output-mode enum kept for API compatibility.
  */
 typedef enum {
-    CXGN_CPP_STD_AUTO = 0, /**< Emit #if __cplusplus guards; works with any standard */
-    CXGN_CPP_STD_17   = 17, /**< Target C++17 */
-    CXGN_CPP_STD_20   = 20, /**< Target C++20 (default) */
+    CXGN_CPP_STD_AUTO = 0,
+    CXGN_CPP_STD_17   = 17,
+    CXGN_CPP_STD_20   = 20,
 } cxgn_cpp_std;
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -462,7 +466,8 @@ void cxgn_generator_free(cxgn_generator* gen);
  * @param handler Expression handler callbacks
  *
  * When set, fields with types that match is_expression_field()
- * will be processed by the handler instead of as raw strings.
+ * will be processed by the handler instead of as raw strings. Handlers must
+ * emit code that is valid in a pure-C initializer context.
  */
 void cxgn_generator_set_expression_handler(cxgn_generator* gen,
                                           const cxgn_expression_handler* handler);
@@ -475,19 +480,23 @@ void cxgn_generator_set_expression_handler(cxgn_generator* gen,
 void cxgn_generator_set_type_options(cxgn_generator* gen, const cxgn_type_options* options);
 
 /**
- * @brief Set the target C++ standard for generated output.
+ * @brief Legacy setter kept for API compatibility.
  * @param gen Generator instance
  * @param std Target standard (default: CXGN_CPP_STD_20)
  *
- * Affects which qualifiers are used in generated declarations:
- * - CXGN_CPP_STD_17: non-literal types (e.g. std::string) use `static const`
- *   backing storage and `const` config variable.
- * - CXGN_CPP_STD_20: all backing and config are `constexpr`.
+ * Pure-C output always uses `static const` regardless of this setting.
  */
 void cxgn_generator_set_cpp_std(cxgn_generator* gen, cxgn_cpp_std std);
 
 /**
- * @brief Generate constexpr C++ code from YAML config.
+ * @brief Override the helper header included by generated output.
+ * @param gen Generator instance
+ * @param helpers_header Header path emitted as `#include <...>`, or NULL to inline typedefs
+ */
+void cxgn_generator_set_helpers_header(cxgn_generator* gen, const char* helpers_header);
+
+/**
+ * @brief Generate C code from YAML config.
  * @param gen Generator instance
  * @param yaml_path Path to YAML file
  * @param header_path Path to header file (for output include)
@@ -498,7 +507,7 @@ cxgn_output* cxgn_generate(cxgn_generator* gen, const char* yaml_path,
                         const char* header_path, cxgn_error* err);
 
 /**
- * @brief Generate constexpr C++ code from YAML text in memory.
+ * @brief Generate C code from YAML text in memory.
  * @param gen Generator instance
  * @param yaml_text YAML document text (UTF-8)
  * @param yaml_virtual_path Virtual/source path used in diagnostics
@@ -532,6 +541,8 @@ size_t cxgn_output_get_code_length(const cxgn_output* output);
  */
 void cxgn_output_free(cxgn_output* output);
 
+#include <cxgn/batch.h>
+
 /* ═══════════════════════════════════════════════════════════════════════════
  * CLI Helpers
  * ═══════════════════════════════════════════════════════════════════════════ */
@@ -543,8 +554,9 @@ typedef struct {
     const char* yaml_path;
     const char* header_path;
     const char* output_path;
+    const char* helpers_header;
     bool verbose;
-    cxgn_cpp_std cpp_std; /**< Target C++ standard (default: CXGN_CPP_STD_20) */
+    cxgn_cpp_std cpp_std; /**< Legacy field kept for compatibility */
 } cxgn_cli_args;
 
 /**

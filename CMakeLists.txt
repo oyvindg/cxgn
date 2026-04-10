@@ -29,7 +29,11 @@ set(CXGN_SOURCES
 )
 
 if(CXGN_YAML_SUPPORT)
-    list(APPEND CXGN_SOURCES src/code_generator.c)
+    list(APPEND CXGN_SOURCES
+        src/code_generator.c
+        src/glob.c
+        src/batch.c
+    )
 endif()
 
 add_library(cxgn ${CXGN_SOURCES})
@@ -82,9 +86,6 @@ install(EXPORT cxgnTargets
 # ═══════════════════════════════════════════════════════════════════════════
 option(CXGN_BUILD_TESTS "Build cxgn tests" ON)
 if(CXGN_BUILD_TESTS)
-    enable_language(CXX)
-    set(CMAKE_CXX_STANDARD 17)
-    set(CMAKE_CXX_STANDARD_REQUIRED ON)
     enable_testing()
     add_subdirectory(tests)
 endif()

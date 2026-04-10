@@ -164,21 +164,21 @@ static void test_path_null_handling(void) {
 }
 
 static void test_path_relative_to_file(void) {
-    char* rel = cxgn_path_relative_to_file("tests/all_types.gen.hpp",
-                                         "tests/fixtures/all_types.hpp");
+    char* rel = cxgn_path_relative_to_file("tests/all_types.gen.h",
+                                         "tests/fixtures/all_types.h");
     assert(rel != NULL);
-    assert(strcmp(rel, "fixtures/all_types.hpp") == 0);
+    assert(strcmp(rel, "fixtures/all_types.h") == 0);
     free(rel);
 
-    rel = cxgn_path_relative_to_file("generated/config.gen.hpp",
-                                   "include/project/Config.hpp");
+    rel = cxgn_path_relative_to_file("generated/config.gen.h",
+                                   "include/project/Config.h");
     assert(rel != NULL);
-    assert(strcmp(rel, "../include/project/Config.hpp") == 0);
+    assert(strcmp(rel, "../include/project/Config.h") == 0);
     free(rel);
 
-    rel = cxgn_path_relative_to_file("config.gen.hpp", "Config.hpp");
+    rel = cxgn_path_relative_to_file("config.gen.h", "Config.h");
     assert(rel != NULL);
-    assert(strcmp(rel, "Config.hpp") == 0);
+    assert(strcmp(rel, "Config.h") == 0);
     free(rel);
 
     printf("  ✓ test_path_relative_to_file\n");

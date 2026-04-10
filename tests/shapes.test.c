@@ -37,7 +37,7 @@ static void test_shapes_structs_parsed(void) {
     cxgn_struct_parser* parser = cxgn_struct_parser_new(utils);
     cxgn_error err = {0};
 
-    assert(cxgn_struct_parser_parse_file(parser, "fixtures/shapes.hpp", &err));
+    assert(cxgn_struct_parser_parse_file(parser, "fixtures/shapes.h", &err));
 
     assert(cxgn_struct_parser_find_struct(parser, "Circle")      != NULL);
     assert(cxgn_struct_parser_find_struct(parser, "Rectangle")   != NULL);
@@ -53,7 +53,7 @@ static void test_variant_field_types_recognized(void) {
     cxgn_struct_parser* parser = cxgn_struct_parser_new(utils);
     cxgn_error err = {0};
 
-    assert(cxgn_struct_parser_parse_file(parser, "fixtures/shapes.hpp", &err));
+    assert(cxgn_struct_parser_parse_file(parser, "fixtures/shapes.h", &err));
 
     const cxgn_struct_info* cfg = cxgn_struct_parser_find_struct(parser, "ShapeConfig");
     assert(cfg != NULL);
@@ -83,11 +83,11 @@ static void test_circle_yaml_picks_index0(void) {
     cxgn_struct_parser* parser = cxgn_struct_parser_new(utils);
     cxgn_error err = {0};
 
-    cxgn_struct_parser_parse_file(parser, "fixtures/shapes.hpp", &err);
+    cxgn_struct_parser_parse_file(parser, "fixtures/shapes.h", &err);
 
     cxgn_generator* gen  = cxgn_generator_new(parser, utils);
     cxgn_output* output  = cxgn_generate(gen, "fixtures/shapes_circle.yaml",
-                                      "fixtures/shapes.hpp", &err);
+                                      "fixtures/shapes.h", &err);
     assert(output != NULL);
 
     const char* code = cxgn_output_get_code(output);
@@ -117,11 +117,11 @@ static void test_rect_yaml_currently_fails(void) {
     cxgn_struct_parser* parser = cxgn_struct_parser_new(utils);
     cxgn_error err = {0};
 
-    cxgn_struct_parser_parse_file(parser, "fixtures/shapes.hpp", &err);
+    cxgn_struct_parser_parse_file(parser, "fixtures/shapes.h", &err);
 
     cxgn_generator* gen = cxgn_generator_new(parser, utils);
     cxgn_output* output = cxgn_generate(gen, "fixtures/shapes_rect.yaml",
-                                     "fixtures/shapes.hpp", &err);
+                                     "fixtures/shapes.h", &err);
 
     /*
      * TODO: when structural matching or discriminator support is added,

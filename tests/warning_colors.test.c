@@ -94,7 +94,7 @@ static void test_missing_field_is_red_warning(void) {
     cxgn_string_utils* utils = cxgn_string_utils_new();
     cxgn_struct_parser* parser = cxgn_struct_parser_new(utils);
     cxgn_error err = {0};
-    char* header_path = fixture_path("warning_missing.hpp");
+    char* header_path = fixture_path("warning_missing.h");
     char* yaml_path = fixture_path("warning_missing.yaml");
 
     assert(cxgn_struct_parser_parse_file(parser, header_path, &err));
@@ -108,7 +108,7 @@ static void test_missing_field_is_red_warning(void) {
     assert(strstr(stderr_text, "\033[1;31mWarning:\033[0m") != NULL);
     assert(strstr(stderr_text, "is missing in YAML") != NULL);
     assert(strstr(stderr_text, "warning_missing.yaml:1") != NULL);
-    assert(strstr(stderr_text, "warning_missing.hpp:1") != NULL);
+    assert(strstr(stderr_text, "warning_missing.h:1") != NULL);
 
     free(stderr_text);
     free(yaml_path);
@@ -124,7 +124,7 @@ static void test_unknown_yaml_field_is_yellow_warning(void) {
     cxgn_string_utils* utils = cxgn_string_utils_new();
     cxgn_struct_parser* parser = cxgn_struct_parser_new(utils);
     cxgn_error err = {0};
-    char* header_path = fixture_path("warning_extra.hpp");
+    char* header_path = fixture_path("warning_extra.h");
     char* yaml_path = fixture_path("warning_extra.yaml");
 
     assert(cxgn_struct_parser_parse_file(parser, header_path, &err));
@@ -139,7 +139,7 @@ static void test_unknown_yaml_field_is_yellow_warning(void) {
     assert(strstr(stderr_text, "is not defined in header struct") != NULL);
     assert(strstr(stderr_text, "will be ignored") != NULL);
     assert(strstr(stderr_text, "warning_extra.yaml:1") != NULL);
-    assert(strstr(stderr_text, "warning_extra.hpp:1") != NULL);
+    assert(strstr(stderr_text, "warning_extra.h:1") != NULL);
 
     free(stderr_text);
     free(yaml_path);

@@ -26,11 +26,11 @@ static cxgn_output* make_output(void) {
     cxgn_struct_parser* parser = cxgn_struct_parser_new(utils);
     cxgn_error err = {0};
 
-    assert(cxgn_struct_parser_parse_file(parser, "fixtures/all_types.hpp", &err));
+    assert(cxgn_struct_parser_parse_file(parser, "fixtures/all_types.h", &err));
 
     cxgn_generator* gen = cxgn_generator_new(parser, utils);
     cxgn_output* out = cxgn_generate(gen, "fixtures/all_types.yaml",
-                                  "fixtures/all_types.hpp", &err);
+                                  "fixtures/all_types.h", &err);
     assert(out != NULL);
 
     /* gen and parser must outlive out in real use; for test simplicity we
@@ -45,7 +45,7 @@ static void test_all_fields_parsed(void) {
     cxgn_struct_parser* parser = cxgn_struct_parser_new(utils);
     cxgn_error err = {0};
 
-    assert(cxgn_struct_parser_parse_file(parser, "fixtures/all_types.hpp", &err));
+    assert(cxgn_struct_parser_parse_file(parser, "fixtures/all_types.h", &err));
 
     assert(cxgn_struct_parser_find_struct(parser, "Point2D")       != NULL);
     assert(cxgn_struct_parser_find_struct(parser, "AllTypesConfig") != NULL);
@@ -116,7 +116,7 @@ static void test_float_integer_yaml_gets_dot(void) {
     cxgn_string_utils* utils = cxgn_string_utils_new();
     cxgn_struct_parser* parser = cxgn_struct_parser_new(utils);
     cxgn_error err = {0};
-    cxgn_struct_parser_parse_file(parser, "fixtures/all_types.hpp", &err);
+    cxgn_struct_parser_parse_file(parser, "fixtures/all_types.h", &err);
 
     cxgn_generator* gen = cxgn_generator_new(parser, utils);
     const char* yaml = "float_val: 3\n"
@@ -134,7 +134,7 @@ static void test_float_integer_yaml_gets_dot(void) {
                        "shape: {radius: 0.0}\n"
                        "nested: {x: 0, y: 0}\n";
     cxgn_output* out = cxgn_generate_from_yaml_text(
-        gen, yaml, "memory://all_types.yaml", "fixtures/all_types.hpp", &err);
+        gen, yaml, "memory://all_types.yaml", "fixtures/all_types.h", &err);
     assert(out != NULL);
 
     const char* code = cxgn_output_get_code(out);
@@ -177,7 +177,7 @@ static void test_string_special_chars(void) {
     cxgn_string_utils* utils = cxgn_string_utils_new();
     cxgn_struct_parser* parser = cxgn_struct_parser_new(utils);
     cxgn_error err = {0};
-    cxgn_struct_parser_parse_file(parser, "fixtures/all_types.hpp", &err);
+    cxgn_struct_parser_parse_file(parser, "fixtures/all_types.h", &err);
 
     cxgn_generator* gen = cxgn_generator_new(parser, utils);
     /* YAML double-quoted strings handle escape sequences */
@@ -194,7 +194,7 @@ static void test_string_special_chars(void) {
                        "shape: {radius: 0.0}\n"
                        "nested: {x: 0, y: 0}\n";
     cxgn_output* out = cxgn_generate_from_yaml_text(
-        gen, yaml, "memory://all_types.yaml", "fixtures/all_types.hpp", &err);
+        gen, yaml, "memory://all_types.yaml", "fixtures/all_types.h", &err);
     assert(out != NULL);
 
     const char* code = cxgn_output_get_code(out);
@@ -357,13 +357,13 @@ static void test_cpp17_string_array_uses_const(void) {
     cxgn_struct_parser* parser = cxgn_struct_parser_new(utils);
     cxgn_error err = {0};
 
-    cxgn_struct_parser_parse_file(parser, "fixtures/all_types.hpp", &err);
+    cxgn_struct_parser_parse_file(parser, "fixtures/all_types.h", &err);
 
     cxgn_generator* gen = cxgn_generator_new(parser, utils);
     cxgn_generator_set_cpp_std(gen, CXGN_CPP_STD_17);
 
     cxgn_output* out = cxgn_generate(gen, "fixtures/all_types.yaml",
-                                  "fixtures/all_types.hpp", &err);
+                                  "fixtures/all_types.h", &err);
     assert(out != NULL);
     const char* code = cxgn_output_get_code(out);
 
@@ -392,13 +392,13 @@ static void test_cpp20_string_array_uses_constexpr(void) {
     cxgn_struct_parser* parser = cxgn_struct_parser_new(utils);
     cxgn_error err = {0};
 
-    cxgn_struct_parser_parse_file(parser, "fixtures/all_types.hpp", &err);
+    cxgn_struct_parser_parse_file(parser, "fixtures/all_types.h", &err);
 
     cxgn_generator* gen = cxgn_generator_new(parser, utils);
     cxgn_generator_set_cpp_std(gen, CXGN_CPP_STD_20);
 
     cxgn_output* out = cxgn_generate(gen, "fixtures/all_types.yaml",
-                                  "fixtures/all_types.hpp", &err);
+                                  "fixtures/all_types.h", &err);
     assert(out != NULL);
     const char* code = cxgn_output_get_code(out);
 
@@ -418,13 +418,13 @@ static void test_cpp_auto_emits_if_guards(void) {
     cxgn_struct_parser* parser = cxgn_struct_parser_new(utils);
     cxgn_error err = {0};
 
-    cxgn_struct_parser_parse_file(parser, "fixtures/all_types.hpp", &err);
+    cxgn_struct_parser_parse_file(parser, "fixtures/all_types.h", &err);
 
     cxgn_generator* gen = cxgn_generator_new(parser, utils);
     cxgn_generator_set_cpp_std(gen, CXGN_CPP_STD_AUTO);
 
     cxgn_output* out = cxgn_generate(gen, "fixtures/all_types.yaml",
-                                  "fixtures/all_types.hpp", &err);
+                                  "fixtures/all_types.h", &err);
     assert(out != NULL);
     const char* code = cxgn_output_get_code(out);
 

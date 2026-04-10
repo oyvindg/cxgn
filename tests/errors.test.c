@@ -28,7 +28,7 @@ static void test_file_not_found(void) {
     cxgn_struct_parser* parser = cxgn_struct_parser_new(utils);
     cxgn_error err = {0};
 
-    bool result = cxgn_struct_parser_parse_file(parser, "nonexistent.hpp", &err);
+    bool result = cxgn_struct_parser_parse_file(parser, "nonexistent.h", &err);
     assert(!result);
     assert(err.code == CXGN_ERR_FILE_NOT_FOUND);
 

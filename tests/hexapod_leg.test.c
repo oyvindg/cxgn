@@ -3,7 +3,7 @@
  * @brief Tests for HexapodLeg struct parsing and code generation.
  *
  * Tests covered:
- * - Relative #include following (HexapodLeg.hpp -> Vec3.hpp)
+ * - Relative #include following (HexapodLeg.h -> Vec3.h)
  * - Multi-declaration parsing of Vec3 fields (float x, y, z;)
  * - Two-level nesting: Vec3 and Joint inside HexapodLeg
  * - snake_case YAML keys mapped to camelCase C++ fields
@@ -20,7 +20,7 @@ static void test_struct_parsing(void) {
     cxgn_struct_parser* parser = cxgn_struct_parser_new(utils);
     cxgn_error err = {0};
 
-    assert(cxgn_struct_parser_parse_file(parser, "fixtures/HexapodLeg.hpp", &err));
+    assert(cxgn_struct_parser_parse_file(parser, "fixtures/HexapodLeg.h", &err));
 
     /* Both structs must be found — Vec3 via followed include */
     assert(cxgn_struct_parser_find_struct(parser, "Vec3")       != NULL);
@@ -61,7 +61,7 @@ static void test_field_types(void) {
     cxgn_struct_parser* parser = cxgn_struct_parser_new(utils);
     cxgn_error err = {0};
 
-    assert(cxgn_struct_parser_parse_file(parser, "fixtures/HexapodLeg.hpp", &err));
+    assert(cxgn_struct_parser_parse_file(parser, "fixtures/HexapodLeg.h", &err));
 
     const cxgn_struct_info* vec3  = cxgn_struct_parser_find_struct(parser, "Vec3");
     const cxgn_struct_info* joint = cxgn_struct_parser_find_struct(parser, "Joint");
@@ -83,11 +83,11 @@ static void test_generation(void) {
     cxgn_struct_parser* parser = cxgn_struct_parser_new(utils);
     cxgn_error err = {0};
 
-    cxgn_struct_parser_parse_file(parser, "fixtures/HexapodLeg.hpp", &err);
+    cxgn_struct_parser_parse_file(parser, "fixtures/HexapodLeg.h", &err);
 
     cxgn_generator* gen = cxgn_generator_new(parser, utils);
     cxgn_output* output = cxgn_generate(gen, "fixtures/HexapodLeg.yaml",
-                                     "fixtures/HexapodLeg.hpp", &err);
+                                     "fixtures/HexapodLeg.h", &err);
     assert(output != NULL);
 
     const char* code = cxgn_output_get_code(output);
