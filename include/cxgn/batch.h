@@ -35,7 +35,47 @@ typedef struct {
      * NULL: defaults to "cxgn_map_entry_t".
      */
     const char* map_type;
+
+    /**
+     * Continue generating other entries when one YAML file fails.
+     * false: abort on first failure.
+     */
+    bool continue_on_error;
 } cxgn_batch_options;
+
+/**
+ * @brief Per-file batch generation result.
+ */
+typedef struct {
+    char* yaml_path;      /**< Owned source path */
+    char* key;            /**< Owned derived map key, or NULL on failure before key derivation */
+    char* identifier;     /**< Owned C identifier derived from key, or NULL */
+    cxgn_output* output;  /**< Generated per-entry output, or NULL on failure */
+    cxgn_error error;     /**< Per-entry error when output is NULL */
+} cxgn_batch_entry_result;
+
+/**
+ * @brief Aggregated batch generation result.
+ */
+typedef struct {
+    cxgn_output* combined_output;       /**< Combined output, or NULL if nothing succeeded */
+    cxgn_batch_entry_result* entries;   /**< Owned per-entry results, sorted by path */
+    size_t entry_count;
+    size_t success_count;
+    size_t failure_count;
+} cxgn_batch_result;
+
+/**
+ * @brief Initialize batch options with cxgn defaults.
+ * @param options Output options struct
+ */
+void cxgn_batch_options_init(cxgn_batch_options* options);
+
+/**
+ * @brief Release all memory owned by a batch result.
+ * @param result Result to clear (NULL-safe)
+ */
+void cxgn_batch_result_clear(cxgn_batch_result* result);
 
 /**
  * @brief Create a new batch.
@@ -112,6 +152,26 @@ cxgn_output* cxgn_batch_generate(cxgn_batch* batch,
                                  const char* header_path,
                                  const cxgn_batch_options* options,
                                  cxgn_error* err);
+
+/**
+ * @brief Generate a combined output and collect per-entry results.
+ *
+ * The result is reset by the callee before use. When
+ * options->continue_on_error is true, generation continues after per-file
+ * failures and successful entries are still emitted into combined_output.
+ *
+ * @param batch       Batch instance (must contain at least one file)
+ * @param header_path Path to the C schema header
+ * @param options     Key derivation and error-handling options (NULL = defaults)
+ * @param result      Output result struct (must not be NULL)
+ * @param err         Batch-level error output (can be NULL)
+ * @return true when at least one entry generated successfully
+ */
+bool cxgn_batch_generate_detailed(cxgn_batch* batch,
+                                  const char* header_path,
+                                  const cxgn_batch_options* options,
+                                  cxgn_batch_result* result,
+                                  cxgn_error* err);
 
 #ifdef __cplusplus
 }

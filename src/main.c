@@ -342,11 +342,11 @@ static int run_batch(const cli_args* args,
     if (args->verbose)
         printf("Batch: %zu file(s)\n", cxgn_batch_count(batch));
 
-    cxgn_batch_options bopts = {
-        .map_root = args->map_root,
-        .map_name = args->map_name,
-        .map_type = args->map_type,
-    };
+    cxgn_batch_options bopts;
+    cxgn_batch_options_init(&bopts);
+    bopts.map_root = args->map_root;
+    bopts.map_name = args->map_name;
+    bopts.map_type = args->map_type;
 
     cxgn_output* output = cxgn_batch_generate(batch, args->header_path, &bopts, &err);
 

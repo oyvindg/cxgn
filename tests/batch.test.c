@@ -248,6 +248,82 @@ static void test_custom_map_names(void) {
     free_gen(gen, parser, utils);
 }
 
+static void test_detailed_result_exposes_per_file_metadata(void) {
+    cxgn_struct_parser* parser;
+    cxgn_string_utils* utils;
+    cxgn_generator* gen = make_gen(&parser, &utils);
+
+    cxgn_error err = {0};
+    cxgn_batch_result result = {0};
+    cxgn_batch* batch = cxgn_batch_new(gen);
+    assert(batch != NULL);
+    assert(cxgn_batch_add_file(batch, "fixtures/batch/beta.yaml",  &err));
+    assert(cxgn_batch_add_file(batch, "fixtures/batch/alpha.yaml", &err));
+
+    cxgn_batch_options opts;
+    cxgn_batch_options_init(&opts);
+    assert(cxgn_batch_generate_detailed(batch, "fixtures/simple.h", &opts, &result, &err));
+    assert(result.combined_output != NULL);
+    assert(result.entry_count == 2);
+    assert(result.success_count == 2);
+    assert(result.failure_count == 0);
+
+    assert(strcmp(result.entries[0].yaml_path, "fixtures/batch/alpha.yaml") == 0);
+    assert(strcmp(result.entries[0].key, "alpha") == 0);
+    assert(strcmp(result.entries[0].identifier, "alpha") == 0);
+    assert(result.entries[0].output != NULL);
+    assert(result.entries[0].error.code == CXGN_OK);
+
+    assert(strcmp(result.entries[1].yaml_path, "fixtures/batch/beta.yaml") == 0);
+    assert(strcmp(result.entries[1].key, "beta") == 0);
+    assert(strcmp(result.entries[1].identifier, "beta") == 0);
+    assert(result.entries[1].output != NULL);
+    assert(result.entries[1].error.code == CXGN_OK);
+
+    cxgn_batch_result_clear(&result);
+    cxgn_batch_free(batch);
+    free_gen(gen, parser, utils);
+}
+
+static void test_continue_on_error_keeps_successful_entries(void) {
+    cxgn_struct_parser* parser;
+    cxgn_string_utils* utils;
+    cxgn_generator* gen = make_gen(&parser, &utils);
+
+    cxgn_generator_set_strict_mode(gen, true);
+
+    cxgn_error err = {0};
+    cxgn_batch_result result = {0};
+    cxgn_batch* batch = cxgn_batch_new(gen);
+    assert(batch != NULL);
+    assert(cxgn_batch_add_file(batch, "fixtures/batch/alpha.yaml", &err));
+    assert(cxgn_batch_add_file(batch, "fixtures/invalid_missing_simple.yaml", &err));
+
+    cxgn_batch_options opts;
+    cxgn_batch_options_init(&opts);
+    opts.continue_on_error = true;
+
+    assert(cxgn_batch_generate_detailed(batch, "fixtures/simple.h", &opts, &result, &err));
+    assert(result.combined_output != NULL);
+    assert(result.entry_count == 2);
+    assert(result.success_count == 1);
+    assert(result.failure_count == 1);
+
+    const char* combined = cxgn_output_get_code(result.combined_output);
+    assert(strstr(combined, "alpha_config") != NULL);
+    assert(strstr(combined, "invalid_missing_config") == NULL);
+    assert(strstr(combined, "cxgn_config_map_count = 1") != NULL);
+
+    assert(result.entries[0].output != NULL);
+    assert(result.entries[1].output == NULL);
+    assert(result.entries[1].error.code == CXGN_ERR_MISSING_FIELD);
+    assert(result.entries[1].error.message != NULL);
+
+    cxgn_batch_result_clear(&result);
+    cxgn_batch_free(batch);
+    free_gen(gen, parser, utils);
+}
+
 static void test_explicit_files_are_sorted(void) {
     cxgn_struct_parser* parser;
     cxgn_string_utils* utils;
@@ -343,6 +419,8 @@ int main(void) {
     test_key_with_map_root();
     test_collision_detection();
     test_custom_map_names();
+    test_detailed_result_exposes_per_file_metadata();
+    test_continue_on_error_keeps_successful_entries();
     test_explicit_files_are_sorted();
     test_map_root_requires_prefix_match();
     test_add_file_missing();

@@ -180,6 +180,28 @@ const char* cxgn_batch_get_path(const cxgn_batch* batch, size_t index) {
     return batch->yaml_paths[index];
 }
 
+void cxgn_batch_options_init(cxgn_batch_options* options) {
+    if (!options) return;
+    options->map_root = NULL;
+    options->map_name = NULL;
+    options->map_type = NULL;
+    options->continue_on_error = false;
+}
+
+void cxgn_batch_result_clear(cxgn_batch_result* result) {
+    if (!result) return;
+    cxgn_output_free(result->combined_output);
+    for (size_t i = 0; i < result->entry_count; i++) {
+        free(result->entries[i].yaml_path);
+        free(result->entries[i].key);
+        free(result->entries[i].identifier);
+        cxgn_output_free(result->entries[i].output);
+        cxgn_error_clear(&result->entries[i].error);
+    }
+    free(result->entries);
+    memset(result, 0, sizeof(*result));
+}
+
 bool cxgn_batch_add_file(cxgn_batch* batch, const char* yaml_path, cxgn_error* err) {
     (void)batch;
     (void)yaml_path;
@@ -203,4 +225,17 @@ cxgn_output* cxgn_batch_generate(cxgn_batch* batch,
     (void)options;
     set_feature_disabled(err);
     return NULL;
+}
+
+bool cxgn_batch_generate_detailed(cxgn_batch* batch,
+                                  const char* header_path,
+                                  const cxgn_batch_options* options,
+                                  cxgn_batch_result* result,
+                                  cxgn_error* err) {
+    (void)batch;
+    (void)header_path;
+    (void)options;
+    if (result) cxgn_batch_result_clear(result);
+    set_feature_disabled(err);
+    return false;
 }

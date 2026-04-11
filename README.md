@@ -81,6 +81,21 @@ Batch-specific options:
 - `--map-name <name>` renames the emitted config map array
 - `--map-type <name>` renames the emitted config map entry typedef
 
+Library-level batch control:
+
+```c
+cxgn_batch_options options;
+cxgn_batch_options_init(&options);
+options.map_root = "strategies";
+options.continue_on_error = true;
+
+cxgn_batch_result result = {0};
+if (cxgn_batch_generate_detailed(batch, "strategy.h", &options, &result, NULL)) {
+    /* result.entries[i] exposes yaml_path/key/identifier/error per file */
+}
+cxgn_batch_result_clear(&result);
+```
+
 Optional shared helper header:
 
 ```bash
@@ -120,6 +135,7 @@ In batch mode, the combined output also includes:
 
 - per-entry prefixed symbols to avoid collisions
 - a trailing keyed config map array plus `<map_name>_count`
+- optional per-entry result metadata through `cxgn_batch_generate_detailed()`
 
 Example field output:
 
