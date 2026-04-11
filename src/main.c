@@ -6,13 +6,14 @@
  *   cxgn --yaml config.yaml --header Config.h --output config.gen.h
  *
  * Batch mode (multiple --yaml or glob pattern):
- *   cxgn --yaml "strategies/**.yaml"    --header Config.h --output all.gen.h
+ *   cxgn --yaml "strategies/\**.yaml"    --header Config.h --output all.gen.h
  *   cxgn --yaml a.yaml --yaml b.yaml   --header Config.h --output all.gen.h
  *
  * Batch options:
  *   --map-root <dir>    Strip this prefix from file paths when deriving map keys.
  *   --map-name <name>   C identifier for the emitted map array (default: cxgn_config_map).
  *   --map-type <name>   C identifier for the map entry typedef (default: cxgn_map_entry_t).
+ *   --strict            Upgrade validation warnings to errors.
  */
 
 #include <cxgn/cxgn.h>
@@ -37,6 +38,7 @@ typedef struct {
     const char* map_root;
     const char* map_name;
     const char* map_type;
+    bool        strict;
     bool        verbose;
 } cli_args;
 
@@ -66,7 +68,7 @@ static void print_usage(const char* prog) {
             "Usage: %s --yaml <file|pattern> --header <file> --output <file>\n"
             "          [--yaml <file|pattern>]...\n"
             "          [--map-root <dir>] [--map-name <name>] [--map-type <name>]\n"
-            "          [--helpers-header <path>] [--verbose]\n"
+            "          [--helpers-header <path>] [--strict] [--verbose]\n"
             "\n"
             "Options:\n"
             "  --yaml, -y         YAML file or glob pattern (repeatable; can take multiple values)\n"
@@ -76,6 +78,7 @@ static void print_usage(const char* prog) {
             "  --map-name         C identifier for the map array (batch; default: cxgn_config_map)\n"
             "  --map-type         C identifier for the map entry typedef (batch; default: cxgn_map_entry_t)\n"
             "  --helpers-header   Emit #include <path> instead of inlining cxgn helper typedefs\n"
+            "  --strict           Treat unknown fields and missing values as errors\n"
             "  --verbose, -v      Enable verbose output\n"
             "  --help             Show this help\n",
             prog);
@@ -122,6 +125,8 @@ static bool parse_args(int argc, char* argv[], cli_args* args) {
         } else if (strcmp(a, "--map-type") == 0) {
             REQUIRE_NEXT("--map-type");
             args->map_type = argv[++i];
+        } else if (strcmp(a, "--strict") == 0) {
+            args->strict = true;
         } else if (strcmp(a, "--verbose") == 0 || strcmp(a, "-v") == 0) {
             args->verbose = true;
         } else if (strcmp(a, "--help") == 0) {
@@ -183,6 +188,23 @@ static char* make_include_guard(const char* output_path) {
 
 static int cmp_path_str(const void* a, const void* b) {
     return strcmp(*(const char* const*)a, *(const char* const*)b);
+}
+
+static void cli_diagnostic_sink(cxgn_diagnostic_level level,
+                                const cxgn_error* diagnostic,
+                                void* userdata) {
+    (void)userdata;
+    if (!diagnostic || level != CXGN_DIAGNOSTIC_WARNING) return;
+
+    fprintf(stderr, "warning");
+    if (diagnostic->path) {
+        fprintf(stderr, ": %s", diagnostic->path);
+        if (diagnostic->line > 0) {
+            fprintf(stderr, ":%zu", diagnostic->line);
+            if (diagnostic->column > 0) fprintf(stderr, ":%zu", diagnostic->column);
+        }
+    }
+    fprintf(stderr, ": %s\n", diagnostic->message ? diagnostic->message : "validation warning");
 }
 
 static bool emit_batch_sources_comment(FILE* outfile, const cxgn_batch* batch) {
@@ -421,6 +443,8 @@ bool cxgn_parse_args(int argc, char* argv[], cxgn_cli_args* args, cxgn_error* er
                 return false;
             }
             args->helpers_header = argv[++i];
+        } else if (strcmp(argv[i], "--strict") == 0) {
+            args->strict = true;
         } else if (strcmp(argv[i], "--verbose") == 0 || strcmp(argv[i], "-v") == 0) {
             args->verbose = true;
         } else if (strcmp(argv[i], "--help") == 0) {
@@ -483,6 +507,11 @@ int main(int argc, char* argv[]) {
     }
 
     cxgn_generator_set_helpers_header(gen, args.helpers_header);
+    cxgn_validation_options validation;
+    cxgn_validation_options_init(&validation);
+    validation.strict_mode = args.strict;
+    validation.diagnostic_fn = cli_diagnostic_sink;
+    cxgn_generator_set_validation_options(gen, &validation);
 
     int result = needs_batch(&args)
         ? run_batch(&args, gen, parser, utils)

@@ -25,14 +25,25 @@ cxgn_batch* cxgn_batch_new(cxgn_generator* gen) {
     if (!gen) return NULL;
     cxgn_batch* batch = (cxgn_batch*)calloc(1, sizeof(*batch));
     if (!batch) return NULL;
-    batch->gen = gen;
+    batch->ref_count = 1;
+    batch->gen = cxgn_generator_retain(gen);
+    return batch;
+}
+
+cxgn_batch* cxgn_batch_retain(cxgn_batch* batch) {
+    if (batch) batch->ref_count++;
     return batch;
 }
 
 void cxgn_batch_free(cxgn_batch* batch) {
     if (!batch) return;
+    if (batch->ref_count > 1) {
+        batch->ref_count--;
+        return;
+    }
     for (size_t i = 0; i < batch->count; i++) free(batch->yaml_paths[i]);
     free(batch->yaml_paths);
+    cxgn_generator_free(batch->gen);
     free(batch);
 }
 
@@ -136,17 +147,34 @@ static bool bout_append(cxgn_output* out, const char* s) {
 }
 
 static bool bout_appendf(cxgn_output* out, const char* fmt, ...) {
-    char buf[1024];
     va_list args;
+    va_list args_copy;
     va_start(args, fmt);
-    vsnprintf(buf, sizeof(buf), fmt, args);
+    va_copy(args_copy, args);
+    const int needed = vsnprintf(NULL, 0, fmt, args);
     va_end(args);
-    return bout_append(out, buf);
+    if (needed < 0) {
+        va_end(args_copy);
+        return false;
+    }
+
+    char* buf = (char*)malloc((size_t)needed + 1);
+    if (!buf) {
+        va_end(args_copy);
+        return false;
+    }
+    vsnprintf(buf, (size_t)needed + 1, fmt, args_copy);
+    va_end(args_copy);
+
+    const bool ok = bout_append(out, buf);
+    free(buf);
+    return ok;
 }
 
 static cxgn_output* bout_new(void) {
     cxgn_output* o = (cxgn_output*)calloc(1, sizeof(*o));
     if (!o) return NULL;
+    o->ref_count = 1;
     o->capacity = 8192;
     o->code = (char*)malloc(o->capacity);
     if (!o->code) { free(o); return NULL; }

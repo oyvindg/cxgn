@@ -50,7 +50,10 @@ typedef enum {
     CXGN_ERR_UNKNOWN_TYPE,
     CXGN_ERR_YAML_ERROR,
     CXGN_ERR_OUT_OF_MEMORY,
-    CXGN_ERR_EXPRESSION_ERROR
+    CXGN_ERR_EXPRESSION_ERROR,
+    CXGN_ERR_DUPLICATE_KEY,
+    CXGN_ERR_UNKNOWN_FIELD,
+    CXGN_ERR_FEATURE_DISABLED
 } cxgn_error_code;
 
 typedef struct cxgn_error {
@@ -63,7 +66,7 @@ typedef struct cxgn_error {
 } cxgn_error;
 
 /**
- * @brief Clear error and free allocated message if needed.
+ * @brief Clear error and free allocated diagnostic strings if needed.
  * @param err Error to clear (NULL-safe)
  */
 void cxgn_error_clear(cxgn_error* err);
@@ -74,6 +77,16 @@ void cxgn_error_clear(cxgn_error* err);
  * @return Static string description
  */
 const char* cxgn_error_string(cxgn_error_code code);
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Capability Detection
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * @brief Report whether YAML-backed generation support is available.
+ * @return true when libyaml-backed generation APIs are enabled in this build
+ */
+bool cxgn_has_yaml(void);
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * String Utils API
@@ -87,9 +100,16 @@ cxgn_string_utils* cxgn_string_utils_new(void);
 
 /**
  * @brief Free a string utils instance.
- * @param utils String utils to free (NULL-safe)
+ * @param utils String utils to release (NULL-safe)
  */
 void cxgn_string_utils_free(cxgn_string_utils* utils);
+
+/**
+ * @brief Retain a string utils instance for shared ownership.
+ * @param utils String utils instance
+ * @return The same pointer for chaining
+ */
+cxgn_string_utils* cxgn_string_utils_retain(cxgn_string_utils* utils);
 
 /**
  * @brief Convert string to snake_case.
@@ -288,16 +308,23 @@ const cxgn_field_info* cxgn_struct_find_field(const cxgn_struct_info* info, cons
 
 /**
  * @brief Create a new struct parser.
- * @param utils String utils instance (borrowed, must outlive parser)
+ * @param utils String utils instance (retained internally)
  * @return Parser handle, or NULL on allocation failure
  */
 cxgn_struct_parser* cxgn_struct_parser_new(const cxgn_string_utils* utils);
 
 /**
  * @brief Free a struct parser.
- * @param parser Parser to free (NULL-safe)
+ * @param parser Parser to release (NULL-safe)
  */
 void cxgn_struct_parser_free(cxgn_struct_parser* parser);
+
+/**
+ * @brief Retain a parser for shared ownership.
+ * @param parser Parser instance
+ * @return The same pointer for chaining
+ */
+cxgn_struct_parser* cxgn_struct_parser_retain(cxgn_struct_parser* parser);
 
 /**
  * @brief Parse header file and extract C struct definitions.
@@ -348,7 +375,7 @@ bool cxgn_struct_parser_is_builtin_type(const cxgn_struct_parser* parser, const 
  * @brief Legacy helper kept for API compatibility.
  * @param parser Parser instance
  * @param type Type name
- * @return false for non-builtin aggregate helper types
+ * @return true for plain scalar/builtin C types
  */
 bool cxgn_struct_parser_is_constexpr_friendly(const cxgn_struct_parser* parser, const char* type);
 
@@ -405,13 +432,56 @@ typedef struct {
 } cxgn_expression_handler;
 
 /* ═══════════════════════════════════════════════════════════════════════════
+ * Validation Policy API
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+typedef enum {
+    CXGN_VALIDATION_IGNORE = 0,
+    CXGN_VALIDATION_WARN,
+    CXGN_VALIDATION_ERROR
+} cxgn_validation_action;
+
+typedef enum {
+    CXGN_DIAGNOSTIC_WARNING = 1,
+    CXGN_DIAGNOSTIC_ERROR = 2
+} cxgn_diagnostic_level;
+
+typedef void (*cxgn_diagnostic_fn)(cxgn_diagnostic_level level,
+                                   const cxgn_error* diagnostic,
+                                   void* userdata);
+
+typedef struct {
+    bool strict_mode;
+    cxgn_validation_action unknown_field;
+    cxgn_validation_action duplicate_key;
+    cxgn_validation_action missing_field;
+    cxgn_diagnostic_fn diagnostic_fn;
+    void* diagnostic_userdata;
+} cxgn_validation_options;
+
+/**
+ * @brief Initialize validation options with cxgn defaults.
+ *
+ * Default policy:
+ * - unknown fields: warning
+ * - duplicate keys: error
+ * - missing required fields: warning
+ * - strict_mode: false
+ * - diagnostic callback: NULL
+ *
+ * @param options Output options struct
+ */
+void cxgn_validation_options_init(cxgn_validation_options* options);
+
+/* ═══════════════════════════════════════════════════════════════════════════
  * Type Options API (output syntax customization)
  * ═══════════════════════════════════════════════════════════════════════════ */
 
 /**
  * @brief Legacy type option hooks kept for API compatibility.
  *
- * All fields are optional; NULL keeps existing generator default.
+ * Pure-C output ignores these fields. They remain in the ABI so older callers
+ * still compile against the C11 generator.
  *
  * Format placeholders:
  * - array_ctor_fmt: `%s` = element_type, data_symbol, count_symbol
@@ -447,8 +517,9 @@ typedef enum {
 
 /**
  * @brief Create a new code generator.
- * @param parser Struct parser (borrowed, must outlive generator)
- * @param utils String utils (borrowed, must outlive generator)
+ * @param parser Struct parser (retained internally, must not be NULL)
+ * @param utils Optional string utils handle. When NULL, the parser's retained
+ *        string utils instance is reused.
  * @return Generator handle, or NULL on allocation failure
  */
 cxgn_generator* cxgn_generator_new(const cxgn_struct_parser* parser,
@@ -456,9 +527,16 @@ cxgn_generator* cxgn_generator_new(const cxgn_struct_parser* parser,
 
 /**
  * @brief Free a code generator.
- * @param gen Generator to free (NULL-safe)
+ * @param gen Generator to release (NULL-safe)
  */
 void cxgn_generator_free(cxgn_generator* gen);
+
+/**
+ * @brief Retain a generator for shared ownership.
+ * @param gen Generator instance
+ * @return The same pointer for chaining
+ */
+cxgn_generator* cxgn_generator_retain(cxgn_generator* gen);
 
 /**
  * @brief Set expression handler for expression fields.
@@ -480,11 +558,26 @@ void cxgn_generator_set_expression_handler(cxgn_generator* gen,
 void cxgn_generator_set_type_options(cxgn_generator* gen, const cxgn_type_options* options);
 
 /**
+ * @brief Set validation options for a generator.
+ * @param gen Generator instance
+ * @param options Validation options copied into the generator
+ */
+void cxgn_generator_set_validation_options(cxgn_generator* gen,
+                                           const cxgn_validation_options* options);
+
+/**
+ * @brief Convenience setter for strict validation mode.
+ * @param gen Generator instance
+ * @param strict When true, unknown fields, duplicate keys, and missing fields become errors
+ */
+void cxgn_generator_set_strict_mode(cxgn_generator* gen, bool strict);
+
+/**
  * @brief Legacy setter kept for API compatibility.
  * @param gen Generator instance
- * @param std Target standard (default: CXGN_CPP_STD_20)
+ * @param std Legacy target mode value
  *
- * Pure-C output always uses `static const` regardless of this setting.
+ * Pure-C output ignores this setting and always emits the same C11 form.
  */
 void cxgn_generator_set_cpp_std(cxgn_generator* gen, cxgn_cpp_std std);
 
@@ -537,9 +630,16 @@ size_t cxgn_output_get_code_length(const cxgn_output* output);
 
 /**
  * @brief Free output handle.
- * @param output Output to free (NULL-safe)
+ * @param output Output to release (NULL-safe)
  */
 void cxgn_output_free(cxgn_output* output);
+
+/**
+ * @brief Retain an output handle for shared ownership.
+ * @param output Output handle
+ * @return The same pointer for chaining
+ */
+cxgn_output* cxgn_output_retain(cxgn_output* output);
 
 #include <cxgn/batch.h>
 
@@ -555,6 +655,7 @@ typedef struct {
     const char* header_path;
     const char* output_path;
     const char* helpers_header;
+    bool strict;
     bool verbose;
     cxgn_cpp_std cpp_std; /**< Legacy field kept for compatibility */
 } cxgn_cli_args;

@@ -22,7 +22,6 @@
 #define CXGN_MAX_PATH_DEPTH 32
 #define CXGN_MAX_INCLUDE_DEPTH 16
 #define CXGN_BUFFER_SIZE 8192
-#define CXGN_LINE_SIZE 1024
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * String Utils
@@ -34,6 +33,7 @@
  * Currently stateless but allows for future caching or customization.
  */
 struct cxgn_string_utils {
+    size_t ref_count;
     int placeholder;  /* Empty structs not allowed in C */
 };
 
@@ -120,10 +120,11 @@ struct cxgn_struct_info {
  * ═══════════════════════════════════════════════════════════════════════════ */
 
 /**
- * @brief C++ header parser for struct definitions.
+ * @brief C schema parser for struct definitions.
  */
 struct cxgn_struct_parser {
-    const cxgn_string_utils* utils;   /**< Borrowed reference */
+    size_t ref_count;
+    cxgn_string_utils* utils;         /**< Retained reference */
     cxgn_struct_info* structs;        /**< Array of parsed structs (owned) */
     size_t struct_count;
     size_t struct_capacity;
@@ -143,20 +144,15 @@ struct cxgn_struct_parser {
  * @brief Code generator instance.
  */
 struct cxgn_generator {
-    const cxgn_struct_parser* parser;  /**< Borrowed reference */
-    const cxgn_string_utils* utils;    /**< Borrowed reference */
+    size_t ref_count;
+    cxgn_struct_parser* parser;        /**< Retained reference */
+    cxgn_string_utils* utils;          /**< Retained reference */
     cxgn_expression_handler expr_handler; /**< Expression handler (copied) */
     bool has_expr_handler;
+    cxgn_validation_options validation;
     char* helpers_header;
     char* symbol_prefix;             /**< Prefix applied to emitted variable names (owned, NULL = none) */
-    char* array_wrapper;             /**< Wrapper token for arrays */
-    char* optional_wrapper;          /**< Wrapper token for optionals */
-    char* variant_wrapper;           /**< Wrapper token for std::variant */
-    char* array_ctor_fmt;            /**< Array constructor format */
-    char* optional_empty_fmt;        /**< Optional empty constructor format */
-    char* optional_value_prefix_fmt; /**< Optional value prefix format */
-    char* optional_value_suffix;     /**< Optional value suffix */
-    cxgn_cpp_std cpp_std;              /**< Target C++ standard (default: CXGN_CPP_STD_20) */
+    cxgn_cpp_std cpp_std;            /**< Legacy compatibility field */
 };
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -167,6 +163,7 @@ struct cxgn_generator {
  * @brief Generated code output.
  */
 struct cxgn_output {
+    size_t ref_count;
     char* code;               /**< Generated code (owned) */
     size_t length;            /**< Code length */
     size_t capacity;          /**< Buffer capacity */
@@ -206,7 +203,8 @@ bool cxgn_glob_expand(const char* pattern, path_list_t* out, cxgn_error* err);
  * @brief Batch handle accumulating input files before combined generation.
  */
 struct cxgn_batch {
-    cxgn_generator* gen;   /**< Borrowed generator reference */
+    size_t ref_count;
+    cxgn_generator* gen;   /**< Retained generator reference */
     char** yaml_paths;     /**< Owned array of resolved YAML file paths */
     size_t count;
     size_t capacity;

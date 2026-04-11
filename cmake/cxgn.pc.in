@@ -1,0 +1,11 @@
+prefix=@CMAKE_INSTALL_PREFIX@
+exec_prefix=${prefix}
+libdir=${exec_prefix}/@CMAKE_INSTALL_LIBDIR@
+includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
+
+Name: cxgn
+Description: Build-time C11 YAML to generated-header library
+Version: @PROJECT_VERSION@
+Requires.private: @CXGN_PC_REQUIRES_PRIVATE@
+Libs: -L${libdir} -lcxgn
+Cflags: -I${includedir}

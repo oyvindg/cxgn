@@ -39,16 +39,23 @@ typedef struct {
 
 /**
  * @brief Create a new batch.
- * @param gen Generator instance (borrowed, must outlive batch)
+ * @param gen Generator instance (retained internally)
  * @return Batch handle, or NULL on allocation failure
  */
 cxgn_batch* cxgn_batch_new(cxgn_generator* gen);
 
 /**
  * @brief Free a batch handle.
- * @param batch Batch to free (NULL-safe)
+ * @param batch Batch to release (NULL-safe)
  */
 void cxgn_batch_free(cxgn_batch* batch);
+
+/**
+ * @brief Retain a batch for shared ownership.
+ * @param batch Batch handle
+ * @return The same pointer for chaining
+ */
+cxgn_batch* cxgn_batch_retain(cxgn_batch* batch);
 
 /**
  * @brief Return the number of files currently queued in the batch.

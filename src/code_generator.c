@@ -44,6 +44,7 @@ static void generated_field_cleanup(cxgn_field_info* field) {
 static cxgn_output* output_new(void) {
     cxgn_output* out = (cxgn_output*)calloc(1, sizeof(*out));
     if (!out) return NULL;
+    out->ref_count = 1;
     out->capacity = CXGN_BUFFER_SIZE;
     out->code = (char*)malloc(out->capacity);
     if (!out->code) {
@@ -54,8 +55,17 @@ static cxgn_output* output_new(void) {
     return out;
 }
 
+cxgn_output* cxgn_output_retain(cxgn_output* output) {
+    if (output) output->ref_count++;
+    return output;
+}
+
 void cxgn_output_free(cxgn_output* output) {
     if (!output) return;
+    if (output->ref_count > 1) {
+        output->ref_count--;
+        return;
+    }
     free(output->code);
     free(output);
 }
@@ -207,15 +217,26 @@ static char* escape_string(const char* value) {
 
 static char* make_backing_name(gen_context* ctx) {
     char* path = cxgn_path_to_string(ctx->path);
+    char* name;
     if (!path) return NULL;
     for (char* p = path; *p; p++) {
         if (*p == '.' || *p == '[' || *p == ']') *p = '_';
     }
     const char* pfx = ctx->gen->symbol_prefix ? ctx->gen->symbol_prefix : "";
-    char buf[512];
-    snprintf(buf, sizeof(buf), "_%sbacking_%s_%d", pfx, path[0] ? path : "value", ctx->backing_counter++);
+    const char* suffix = path[0] ? path : "value";
+    const int needed = snprintf(NULL, 0, "_%sbacking_%s_%d", pfx, suffix, ctx->backing_counter++);
+    if (needed < 0) {
+        free(path);
+        return NULL;
+    }
+    name = (char*)malloc((size_t)needed + 1);
+    if (!name) {
+        free(path);
+        return NULL;
+    }
+    snprintf(name, (size_t)needed + 1, "_%sbacking_%s_%d", pfx, suffix, ctx->backing_counter - 1);
     free(path);
-    return cxgn_strdup(buf);
+    return name;
 }
 
 static bool populate_field_alias_traits(const cxgn_struct_parser* parser, cxgn_field_info* field) {
@@ -248,13 +269,27 @@ static bool populate_field_alias_traits(const cxgn_struct_parser* parser, cxgn_f
 static bool gen_value(gen_context* ctx, yaml_document_t* doc, yaml_node_t* node,
                       const cxgn_field_info* field);
 
-static bool gen_scalar(gen_context* ctx, const char* value, const cxgn_field_info* field) {
+void cxgn_validation_options_init(cxgn_validation_options* options) {
+    if (!options) return;
+    options->strict_mode = false;
+    options->unknown_field = CXGN_VALIDATION_WARN;
+    options->duplicate_key = CXGN_VALIDATION_ERROR;
+    options->missing_field = CXGN_VALIDATION_WARN;
+    options->diagnostic_fn = NULL;
+    options->diagnostic_userdata = NULL;
+}
+
+static bool gen_scalar(gen_context* ctx,
+                       const char* value,
+                       const cxgn_field_info* field,
+                       const char* source_type) {
     yaml_value_type vtype = detect_yaml_type(value);
     const char* type = field ? field->type : NULL;
+    const char* expr_type = source_type ? source_type : type;
 
-    if (ctx->gen->has_expr_handler && type &&
+    if (ctx->gen->has_expr_handler && expr_type &&
         ctx->gen->expr_handler.is_expression_field &&
-        ctx->gen->expr_handler.is_expression_field(type, ctx->gen->expr_handler.userdata)) {
+        ctx->gen->expr_handler.is_expression_field(expr_type, ctx->gen->expr_handler.userdata)) {
         char* yaml_path = cxgn_path_to_string(ctx->path);
         char* validation = ctx->gen->expr_handler.validate
             ? ctx->gen->expr_handler.validate(value, yaml_path, ctx->gen->expr_handler.userdata)
@@ -302,10 +337,7 @@ static bool gen_scalar(gen_context* ctx, const char* value, const cxgn_field_inf
         if (vtype == YAML_VAL_INT) output_append(ctx->out, ".0");
         return true;
     }
-    if (type &&
-        (strcmp(type, "const char*") == 0 ||
-         strcmp(type, "std::string") == 0 ||
-         strcmp(type, "std::string_view") == 0)) {
+    if (type && strcmp(type, "const char*") == 0) {
         char* escaped = escape_string(value);
         if (!escaped) return false;
         const bool ok = output_appendf(ctx->out, "\"%s\"", escaped);
@@ -324,10 +356,218 @@ static bool gen_scalar(gen_context* ctx, const char* value, const cxgn_field_inf
     return output_append(ctx->out, value);
 }
 
+static char* cxgn_vasprintf(const char* fmt, va_list args) {
+    va_list args_copy;
+    va_copy(args_copy, args);
+    const int needed = vsnprintf(NULL, 0, fmt, args_copy);
+    va_end(args_copy);
+    if (needed < 0) return NULL;
+
+    char* buf = (char*)malloc((size_t)needed + 1);
+    if (!buf) return NULL;
+    vsnprintf(buf, (size_t)needed + 1, fmt, args);
+    return buf;
+}
+
+static char* cxgn_asprintf(const char* fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    char* buf = cxgn_vasprintf(fmt, args);
+    va_end(args);
+    return buf;
+}
+
+static char* make_child_path(const cxgn_path* path, const char* child) {
+    char* base = cxgn_path_to_string(path);
+    char* full;
+    if (!base) return NULL;
+    if (!child || !child[0]) return base;
+    if (!base[0]) {
+        free(base);
+        return cxgn_strdup(child);
+    }
+    full = cxgn_asprintf("%s.%s", base, child);
+    free(base);
+    return full;
+}
+
+static void apply_node_mark(cxgn_error* err, const yaml_node_t* node) {
+    if (!err || !node) return;
+    err->line = (size_t)node->start_mark.line + 1;
+    err->column = (size_t)node->start_mark.column + 1;
+}
+
+static bool emit_validation(gen_context* ctx,
+                            cxgn_validation_action action,
+                            cxgn_error_code code,
+                            const yaml_node_t* node,
+                            const char* path,
+                            const char* fmt, ...) {
+    if (ctx->gen->validation.strict_mode && action != CXGN_VALIDATION_IGNORE) {
+        action = CXGN_VALIDATION_ERROR;
+    }
+    if (action == CXGN_VALIDATION_IGNORE) return true;
+
+    va_list args;
+    va_start(args, fmt);
+    char* message = cxgn_vasprintf(fmt, args);
+    va_end(args);
+    if (!message) {
+        cxgn_error_set(ctx->err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
+        return false;
+    }
+
+    char* owned_path = path ? cxgn_strdup(path) : NULL;
+    if (path && !owned_path) {
+        free(message);
+        cxgn_error_set(ctx->err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
+        return false;
+    }
+
+    cxgn_error diagnostic = {0};
+    diagnostic.code = code;
+    diagnostic.message = message;
+    diagnostic.path = owned_path;
+    diagnostic.needs_free = true;
+    apply_node_mark(&diagnostic, node);
+
+    if (ctx->gen->validation.diagnostic_fn) {
+        cxgn_diagnostic_level level = action == CXGN_VALIDATION_ERROR
+            ? CXGN_DIAGNOSTIC_ERROR
+            : CXGN_DIAGNOSTIC_WARNING;
+        ctx->gen->validation.diagnostic_fn(level, &diagnostic,
+                                           ctx->gen->validation.diagnostic_userdata);
+    }
+
+    if (action == CXGN_VALIDATION_ERROR) {
+        if (ctx->err) {
+            cxgn_error_clear(ctx->err);
+            *ctx->err = diagnostic;
+        } else {
+            cxgn_error_clear(&diagnostic);
+        }
+        return false;
+    }
+
+    cxgn_error_clear(&diagnostic);
+    return true;
+}
+
+static size_t find_field_index(const gen_context* ctx,
+                               const cxgn_struct_info* info,
+                               const char* key_text) {
+    for (size_t i = 0; i < info->field_count; i++) {
+        const cxgn_field_info* field = &info->fields[i];
+        if (strcmp(key_text, field->name) == 0) return i;
+
+        char* snake = cxgn_to_snake_case(ctx->gen->utils, field->name);
+        const bool match = snake && strcmp(key_text, snake) == 0;
+        free(snake);
+        if (match) return i;
+    }
+    return (size_t)-1;
+}
+
+static bool validate_struct_mapping(gen_context* ctx,
+                                    yaml_document_t* doc,
+                                    yaml_node_t* node,
+                                    const cxgn_struct_info* info) {
+    bool* seen = NULL;
+    if (info->field_count > 0) {
+        seen = (bool*)calloc(info->field_count, sizeof(*seen));
+        if (!seen) {
+            cxgn_error_set(ctx->err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
+            return false;
+        }
+    }
+
+    for (yaml_node_pair_t* pair = node->data.mapping.pairs.start;
+         pair < node->data.mapping.pairs.top; pair++) {
+        yaml_node_t* key = yaml_document_get_node(doc, pair->key);
+        if (!key || key->type != YAML_SCALAR_NODE) continue;
+
+        const char* key_text = (const char*)key->data.scalar.value;
+        size_t field_index = find_field_index(ctx, info, key_text);
+        char* key_path = make_child_path(ctx->path, key_text);
+        if (!key_path) {
+            free(seen);
+            cxgn_error_set(ctx->err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
+            return false;
+        }
+
+        if (field_index == (size_t)-1) {
+            const bool ok = emit_validation(ctx,
+                                            ctx->gen->validation.unknown_field,
+                                            CXGN_ERR_UNKNOWN_FIELD,
+                                            key,
+                                            key_path,
+                                            "Unknown field '%s'",
+                                            key_text);
+            free(key_path);
+            if (!ok) {
+                free(seen);
+                return false;
+            }
+            continue;
+        }
+
+        if (seen[field_index]) {
+            const bool ok = emit_validation(ctx,
+                                            ctx->gen->validation.duplicate_key,
+                                            CXGN_ERR_DUPLICATE_KEY,
+                                            key,
+                                            key_path,
+                                            "Duplicate mapping for field '%s'",
+                                            info->fields[field_index].name);
+            free(key_path);
+            if (!ok) {
+                free(seen);
+                return false;
+            }
+            continue;
+        }
+
+        seen[field_index] = true;
+        free(key_path);
+    }
+
+    for (size_t i = 0; i < info->field_count; i++) {
+        if (seen && seen[i]) continue;
+        if (info->fields[i].is_optional) continue;
+
+        char* field_path = make_child_path(ctx->path, info->fields[i].name);
+        if (!field_path) {
+            free(seen);
+            cxgn_error_set(ctx->err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
+            return false;
+        }
+
+        const bool ok = emit_validation(ctx,
+                                        ctx->gen->validation.missing_field,
+                                        CXGN_ERR_MISSING_FIELD,
+                                        node,
+                                        field_path,
+                                        "Missing required field '%s'; using zero-initialized fallback",
+                                        info->fields[i].name);
+        free(field_path);
+        if (!ok) {
+            free(seen);
+            return false;
+        }
+    }
+
+    free(seen);
+    return true;
+}
+
 static bool gen_struct_value(gen_context* ctx, yaml_document_t* doc, yaml_node_t* node,
                              const cxgn_struct_info* info) {
     if (node->type != YAML_MAPPING_NODE) {
         cxgn_error_set(ctx->err, CXGN_ERR_TYPE_MISMATCH, "Expected mapping for struct");
+        return false;
+    }
+
+    if (!validate_struct_mapping(ctx, doc, node, info)) {
         return false;
     }
 
@@ -487,7 +727,7 @@ static bool gen_value(gen_context* ctx, yaml_document_t* doc, yaml_node_t* node,
         return ok;
     }
     if (node->type == YAML_SCALAR_NODE) {
-        const bool ok = gen_scalar(ctx, (const char*)node->data.scalar.value, &derived);
+        const bool ok = gen_scalar(ctx, (const char*)node->data.scalar.value, &derived, field->type);
         generated_field_cleanup(&derived);
         return ok;
     }
@@ -508,40 +748,52 @@ static bool gen_value(gen_context* ctx, yaml_document_t* doc, yaml_node_t* node,
     return false;
 }
 
+cxgn_generator* cxgn_generator_retain(cxgn_generator* gen) {
+    if (gen) gen->ref_count++;
+    return gen;
+}
+
 cxgn_generator* cxgn_generator_new(const cxgn_struct_parser* parser, const cxgn_string_utils* utils) {
+    if (!parser) return NULL;
+    cxgn_string_utils* retained_utils =
+        cxgn_string_utils_retain((cxgn_string_utils*)(utils ? utils : parser->utils));
+    if (!retained_utils) return NULL;
+
     cxgn_generator* gen = (cxgn_generator*)calloc(1, sizeof(*gen));
-    if (!gen) return NULL;
-    gen->parser = parser;
-    gen->utils = utils;
-    gen->array_wrapper = cxgn_strdup("cxgn_array");
-    gen->optional_wrapper = cxgn_strdup("cxgn_optional");
-    gen->variant_wrapper = cxgn_strdup("cxgn_variant");
-    gen->array_ctor_fmt = cxgn_strdup("");
-    gen->optional_empty_fmt = cxgn_strdup("");
-    gen->optional_value_prefix_fmt = cxgn_strdup("");
-    gen->optional_value_suffix = cxgn_strdup("");
-    gen->cpp_std = CXGN_CPP_STD_20;
-    if (!gen->array_wrapper || !gen->optional_wrapper || !gen->variant_wrapper ||
-        !gen->array_ctor_fmt || !gen->optional_empty_fmt ||
-        !gen->optional_value_prefix_fmt || !gen->optional_value_suffix) {
-        cxgn_generator_free(gen);
+    if (!gen) {
+        cxgn_string_utils_free(retained_utils);
         return NULL;
     }
+    gen->ref_count = 1;
+    gen->parser = cxgn_struct_parser_retain((cxgn_struct_parser*)parser);
+    gen->utils = retained_utils;
+    gen->cpp_std = CXGN_CPP_STD_20;
+    cxgn_validation_options_init(&gen->validation);
     return gen;
 }
 
 void cxgn_generator_free(cxgn_generator* gen) {
     if (!gen) return;
+    if (gen->ref_count > 1) {
+        gen->ref_count--;
+        return;
+    }
     free(gen->helpers_header);
     free(gen->symbol_prefix);
-    free(gen->array_wrapper);
-    free(gen->optional_wrapper);
-    free(gen->variant_wrapper);
-    free(gen->array_ctor_fmt);
-    free(gen->optional_empty_fmt);
-    free(gen->optional_value_prefix_fmt);
-    free(gen->optional_value_suffix);
+    cxgn_struct_parser_free(gen->parser);
+    cxgn_string_utils_free(gen->utils);
     free(gen);
+}
+
+void cxgn_generator_set_validation_options(cxgn_generator* gen,
+                                           const cxgn_validation_options* options) {
+    if (!gen || !options) return;
+    gen->validation = *options;
+}
+
+void cxgn_generator_set_strict_mode(cxgn_generator* gen, bool strict) {
+    if (!gen) return;
+    gen->validation.strict_mode = strict;
 }
 
 void cxgn_generator_set_cpp_std(cxgn_generator* gen, cxgn_cpp_std std) {

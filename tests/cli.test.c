@@ -54,9 +54,32 @@ static void test_yaml_flag_accepts_multiple_values(void) {
     printf("  ✓ test_yaml_flag_accepts_multiple_values\n");
 }
 
+static void test_strict_mode_fails_on_validation_warning(void) {
+    const char* output_path = "/tmp/cxgn_cli_strict.gen.h";
+    remove(output_path);
+
+    char command[1024];
+    int written = snprintf(
+        command, sizeof(command),
+        "\"%s\" --yaml fixtures/warning_extra.yaml "
+        "--header fixtures/warning_extra.h --output %s --strict",
+        CXGN_CLI_PATH, output_path);
+    assert(written > 0);
+    assert((size_t)written < sizeof(command));
+
+    int rc = system(command);
+    assert(rc != 0);
+
+    FILE* generated = fopen(output_path, "rb");
+    assert(generated == NULL);
+
+    printf("  ✓ test_strict_mode_fails_on_validation_warning\n");
+}
+
 int main(void) {
     printf("Running CLI tests...\n");
     test_yaml_flag_accepts_multiple_values();
+    test_strict_mode_fails_on_validation_warning();
     printf("All CLI tests passed!\n");
     return 0;
 }

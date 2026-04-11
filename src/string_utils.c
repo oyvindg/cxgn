@@ -3,7 +3,7 @@
  * @brief Case conversion utilities for cxgn.
  *
  * Provides snake_case, camelCase, and PascalCase conversions
- * for mapping YAML keys to C++ struct fields.
+ * for mapping YAML keys to C struct fields.
  */
 
 #include "internal.h"
@@ -23,20 +23,34 @@ static const char* const error_strings[] = {
     [CXGN_ERR_UNKNOWN_TYPE] = "Unknown type",
     [CXGN_ERR_YAML_ERROR] = "YAML parsing error",
     [CXGN_ERR_OUT_OF_MEMORY] = "Out of memory",
-    [CXGN_ERR_EXPRESSION_ERROR] = "Expression error"
+    [CXGN_ERR_EXPRESSION_ERROR] = "Expression error",
+    [CXGN_ERR_DUPLICATE_KEY] = "Duplicate key",
+    [CXGN_ERR_UNKNOWN_FIELD] = "Unknown field",
+    [CXGN_ERR_FEATURE_DISABLED] = "Feature disabled"
 };
 
 const char* cxgn_error_string(cxgn_error_code code) {
-    if (code >= 0 && code <= CXGN_ERR_EXPRESSION_ERROR) {
+    if (code >= 0 && code <= CXGN_ERR_FEATURE_DISABLED) {
         return error_strings[code];
     }
     return "Unknown error";
+}
+
+bool cxgn_has_yaml(void) {
+#ifdef CXGN_YAML_SUPPORT
+    return true;
+#else
+    return false;
+#endif
 }
 
 void cxgn_error_clear(cxgn_error* err) {
     if (!err) return;
     if (err->needs_free && err->message) {
         free((void*)err->message);
+    }
+    if (err->needs_free && err->path) {
+        free((void*)err->path);
     }
     cxgn_error_init(err);
 }
@@ -48,12 +62,23 @@ void cxgn_error_clear(cxgn_error* err) {
 cxgn_string_utils* cxgn_string_utils_new(void) {
     cxgn_string_utils* utils = (cxgn_string_utils*)malloc(sizeof(cxgn_string_utils));
     if (utils) {
+        utils->ref_count = 1;
         utils->placeholder = 0;
     }
     return utils;
 }
 
+cxgn_string_utils* cxgn_string_utils_retain(cxgn_string_utils* utils) {
+    if (utils) utils->ref_count++;
+    return utils;
+}
+
 void cxgn_string_utils_free(cxgn_string_utils* utils) {
+    if (!utils) return;
+    if (utils->ref_count > 1) {
+        utils->ref_count--;
+        return;
+    }
     free(utils);
 }
 

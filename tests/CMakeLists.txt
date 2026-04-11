@@ -1,9 +1,12 @@
 set(CXGN_TEST_BASES
+    capability
     cli
     string_utils
     path
     errors
+    ownership
     struct_parser
+    validation
     yaml_types
     code_generator
     integration
@@ -12,6 +15,8 @@ set(CXGN_TEST_BASES
 
 set(CXGN_YAML_DEPENDENT
     cli
+    ownership
+    validation
     yaml_types
     code_generator
     integration

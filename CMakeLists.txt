@@ -7,11 +7,20 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
-# Dependencies (libyaml for C)
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(YAML yaml-0.1)
+option(CXGN_ENABLE_YAML "Enable libyaml-backed generation support" ON)
 
-if(NOT YAML_FOUND)
+# Dependencies (libyaml for C)
+if(CXGN_ENABLE_YAML)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(YAML yaml-0.1)
+else()
+    set(YAML_FOUND OFF)
+endif()
+
+if(NOT CXGN_ENABLE_YAML)
+    message(STATUS "Building cxgn without YAML support (CXGN_ENABLE_YAML=OFF).")
+    set(CXGN_YAML_SUPPORT OFF)
+elseif(NOT YAML_FOUND)
     message(WARNING "libyaml not found. Install libyaml-dev to enable cxgn code generation.")
     message(WARNING "Building cxgn without YAML support (string_utils and path only).")
     set(CXGN_YAML_SUPPORT OFF)
@@ -33,6 +42,10 @@ if(CXGN_YAML_SUPPORT)
         src/code_generator.c
         src/glob.c
         src/batch.c
+    )
+else()
+    list(APPEND CXGN_SOURCES
+        src/yaml_stubs.c
     )
 endif()
 
@@ -62,6 +75,7 @@ endif()
 # Install
 # ═══════════════════════════════════════════════════════════════════════════
 include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
 
 set(CXGN_INSTALL_TARGETS cxgn)
 if(CXGN_YAML_SUPPORT)
@@ -76,9 +90,43 @@ install(TARGETS ${CXGN_INSTALL_TARGETS}
 )
 install(DIRECTORY include/cxgn DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(EXPORT cxgnTargets
-    FILE cxgnConfig.cmake
+    FILE cxgnTargets.cmake
     NAMESPACE cxgn::
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/cxgn
+)
+
+configure_package_config_file(
+    cmake/cxgnConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/cxgnConfig.cmake
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/cxgn
+)
+
+write_basic_package_version_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/cxgnConfigVersion.cmake
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion
+)
+
+install(FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/cxgnConfig.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/cxgnConfigVersion.cmake
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/cxgn
+)
+
+set(CXGN_PC_REQUIRES_PRIVATE "")
+if(CXGN_YAML_SUPPORT)
+    set(CXGN_PC_REQUIRES_PRIVATE "yaml-0.1")
+endif()
+
+configure_file(
+    cmake/cxgn.pc.in
+    ${CMAKE_CURRENT_BINARY_DIR}/cxgn.pc
+    @ONLY
+)
+
+install(FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/cxgn.pc
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig
 )
 
 # ═══════════════════════════════════════════════════════════════════════════

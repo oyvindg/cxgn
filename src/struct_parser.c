@@ -337,17 +337,21 @@ static bool parse_multi_field_line(const cxgn_struct_parser* parser, const char*
     const char* comma = strchr(line, ',');
     if (!semi || !comma || comma > semi) return false;
 
-    char synth[CXGN_LINE_SIZE];
     size_t prefix_len = (size_t)(comma - line);
-    if (prefix_len + 2 >= sizeof(synth)) return false;
+    char* synth = (char*)malloc(prefix_len + 2);
+    if (!synth) return false;
     memcpy(synth, line, prefix_len);
     synth[prefix_len] = ';';
     synth[prefix_len + 1] = '\0';
 
     cxgn_field_info first = {0};
-    if (!parse_field_line(parser, synth, &first)) return false;
+    if (!parse_field_line(parser, synth, &first)) {
+        free(synth);
+        return false;
+    }
     cxgn_field_info* target = struct_add_field(info);
     if (!target) {
+        free(synth);
         field_info_free(&first);
         return false;
     }
@@ -364,23 +368,33 @@ static bool parse_multi_field_line(const cxgn_struct_parser* parser, const char*
         if (trimmed_end > cur) {
             size_t type_len = strlen(type_str);
             size_t name_len = (size_t)(trimmed_end - cur);
-            if (type_len + 1 + name_len + 2 < sizeof(synth)) {
-                memcpy(synth, type_str, type_len);
-                synth[type_len] = ' ';
-                memcpy(synth + type_len + 1, cur, name_len);
-                synth[type_len + 1 + name_len] = ';';
-                synth[type_len + 1 + name_len + 1] = '\0';
-                cxgn_field_info extra = {0};
-                if (parse_field_line(parser, synth, &extra)) {
-                    cxgn_field_info* slot = struct_add_field(info);
-                    if (slot) *slot = extra;
-                    else field_info_free(&extra);
+            char* entry = (char*)malloc(type_len + 1 + name_len + 2);
+            if (!entry) {
+                free(synth);
+                return false;
+            }
+            memcpy(entry, type_str, type_len);
+            entry[type_len] = ' ';
+            memcpy(entry + type_len + 1, cur, name_len);
+            entry[type_len + 1 + name_len] = ';';
+            entry[type_len + 1 + name_len + 1] = '\0';
+            cxgn_field_info extra = {0};
+            if (parse_field_line(parser, entry, &extra)) {
+                cxgn_field_info* slot = struct_add_field(info);
+                if (slot) *slot = extra;
+                else {
+                    free(entry);
+                    free(synth);
+                    field_info_free(&extra);
+                    return false;
                 }
             }
+            free(entry);
         }
         cur = next + 1;
     }
 
+    free(synth);
     return true;
 }
 
@@ -459,21 +473,33 @@ static bool parse_struct(cxgn_struct_parser* parser, const char* content, const 
         const char* line_end = memchr(line, '\n', (size_t)(close_brace - line));
         if (!line_end) line_end = close_brace;
 
-        char buf[CXGN_LINE_SIZE];
         size_t len = (size_t)(line_end - line);
-        if (len >= sizeof(buf)) len = sizeof(buf) - 1;
-        memcpy(buf, line, len);
-        buf[len] = '\0';
+        char* buf = cxgn_strndup(line, len);
+        if (!buf) {
+            cxgn_error_set(err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
+            return false;
+        }
 
-        if (has_multi_decl_comma(buf)) parse_multi_field_line(parser, buf, info);
-        else {
+        if (has_multi_decl_comma(buf)) {
+            if (!parse_multi_field_line(parser, buf, info)) {
+                free(buf);
+                cxgn_error_set(err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
+                return false;
+            }
+        } else {
             cxgn_field_info field = {0};
             if (parse_field_line(parser, buf, &field)) {
                 cxgn_field_info* slot = struct_add_field(info);
                 if (slot) *slot = field;
-                else field_info_free(&field);
+                else {
+                    free(buf);
+                    field_info_free(&field);
+                    cxgn_error_set(err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
+                    return false;
+                }
             }
         }
+        free(buf);
 
         line = (*line_end == '\n') ? line_end + 1 : line_end;
     }
@@ -512,9 +538,11 @@ static bool parse_include(cxgn_struct_parser* parser, const char* content, const
 }
 
 cxgn_struct_parser* cxgn_struct_parser_new(const cxgn_string_utils* utils) {
+    if (!utils) return NULL;
     cxgn_struct_parser* parser = (cxgn_struct_parser*)calloc(1, sizeof(*parser));
     if (!parser) return NULL;
-    parser->utils = utils;
+    parser->ref_count = 1;
+    parser->utils = cxgn_string_utils_retain((cxgn_string_utils*)utils);
     parser->struct_capacity = 8;
     parser->parsed_file_capacity = 8;
     parser->alias_capacity = 8;
@@ -528,14 +556,24 @@ cxgn_struct_parser* cxgn_struct_parser_new(const cxgn_string_utils* utils) {
     return parser;
 }
 
+cxgn_struct_parser* cxgn_struct_parser_retain(cxgn_struct_parser* parser) {
+    if (parser) parser->ref_count++;
+    return parser;
+}
+
 void cxgn_struct_parser_free(cxgn_struct_parser* parser) {
     if (!parser) return;
+    if (parser->ref_count > 1) {
+        parser->ref_count--;
+        return;
+    }
     for (size_t i = 0; i < parser->struct_count; i++) struct_info_free(&parser->structs[i]);
     for (size_t i = 0; i < parser->parsed_file_count; i++) free(parser->parsed_files[i]);
     for (size_t i = 0; i < parser->alias_count; i++) alias_free(&parser->aliases[i]);
     free(parser->structs);
     free(parser->parsed_files);
     free(parser->aliases);
+    cxgn_string_utils_free(parser->utils);
     free(parser);
 }
 
@@ -587,11 +625,14 @@ bool cxgn_struct_parser_parse_file(cxgn_struct_parser* parser, const char* heade
 
         const char* line_end = strchr(p, '\n');
         if (!line_end) line_end = content + read;
-        char line[CXGN_LINE_SIZE];
         size_t len = (size_t)(line_end - p);
-        if (len >= sizeof(line)) len = sizeof(line) - 1;
-        memcpy(line, p, len);
-        line[len] = '\0';
+        char* line = cxgn_strndup(p, len);
+        if (!line) {
+            free(base_dir);
+            free(content);
+            cxgn_error_set(err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
+            return false;
+        }
 
         if (*p == '#' && starts_with(p, "#include")) {
             parse_include(parser, content, base_dir, &pos, err);
@@ -599,6 +640,7 @@ bool cxgn_struct_parser_parse_file(cxgn_struct_parser* parser, const char* heade
             pos = (size_t)((*line_end == '\n') ? (line_end + 1 - content) : (line_end - content));
         } else if (starts_with(p, "typedef struct") || starts_with(p, "struct ")) {
             if (!parse_struct(parser, content, header_path, &pos, err)) {
+                free(line);
                 free(base_dir);
                 free(content);
                 return false;
@@ -606,6 +648,7 @@ bool cxgn_struct_parser_parse_file(cxgn_struct_parser* parser, const char* heade
         } else {
             pos = (size_t)((*line_end == '\n') ? (line_end + 1 - content) : (line_end - content));
         }
+        free(line);
     }
 
     free(base_dir);
