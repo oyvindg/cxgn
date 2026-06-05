@@ -6,7 +6,7 @@
  * - Relative #include following (HexapodLeg.h -> Vec3.h)
  * - Multi-declaration parsing of Vec3 fields (float x, y, z;)
  * - Two-level nesting: Vec3 and Joint inside HexapodLeg
- * - snake_case YAML keys mapped to camelCase C++ fields
+ * - snake_case YAML keys mapped to camelCase C fields
  * - Generated code contains expected values
  */
 

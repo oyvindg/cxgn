@@ -60,7 +60,7 @@ static cxgn_generator* make_generator(const char* header_path,
     return gen;
 }
 
-static void test_missing_field_warns_by_default(void) {
+static void test_missing_field_errors_by_default(void) {
     cxgn_error err = {0};
     diag_collector collector = {0};
     cxgn_struct_parser* parser;
@@ -68,18 +68,41 @@ static void test_missing_field_warns_by_default(void) {
     cxgn_generator* gen = make_generator("fixtures/warning_missing.h", &collector, &parser, &utils);
 
     cxgn_output* out = cxgn_generate(gen, "fixtures/warning_missing.yaml", "fixtures/warning_missing.h", &err);
-    assert(out != NULL);
-    assert(collector.warnings == 1);
-    assert(collector.errors == 0);
+    assert(out == NULL);
+    assert(err.code == CXGN_ERR_MISSING_FIELD);
+    assert(collector.warnings == 0);
+    assert(collector.errors == 1);
     assert(collector.last_code == CXGN_ERR_MISSING_FIELD);
     assert(strstr(collector.last_path, "required_b") != NULL);
-    assert(strstr(cxgn_output_get_code(out), ".required_b = {0}") != NULL);
+    assert(strstr(err.path, "required_b") != NULL);
+    cxgn_error_clear(&err);
 
-    cxgn_output_free(out);
     cxgn_generator_free(gen);
     cxgn_struct_parser_free(parser);
     cxgn_string_utils_free(utils);
-    printf("  ✓ test_missing_field_warns_by_default\n");
+    printf("  ✓ test_missing_field_errors_by_default\n");
+}
+
+static void test_multiple_missing_fields_are_reported(void) {
+    cxgn_error err = {0};
+    diag_collector collector = {0};
+    cxgn_struct_parser* parser;
+    cxgn_string_utils* utils;
+    cxgn_generator* gen = make_generator("fixtures/warning_missing.h", &collector, &parser, &utils);
+
+    cxgn_output* out = cxgn_generate_from_yaml_text(
+        gen, "{}\n", "fixtures/warning_missing_empty.yaml", "fixtures/warning_missing.h", &err);
+    assert(out == NULL);
+    assert(err.code == CXGN_ERR_MISSING_FIELD);
+    assert(collector.warnings == 0);
+    assert(collector.errors == 2);
+    assert(collector.last_code == CXGN_ERR_MISSING_FIELD);
+    cxgn_error_clear(&err);
+
+    cxgn_generator_free(gen);
+    cxgn_struct_parser_free(parser);
+    cxgn_string_utils_free(utils);
+    printf("  ✓ test_multiple_missing_fields_are_reported\n");
 }
 
 static void test_unknown_field_warns_by_default(void) {
@@ -148,7 +171,8 @@ static void test_strict_mode_promotes_warnings_to_errors(void) {
 
 int main(void) {
     printf("Running validation tests...\n");
-    test_missing_field_warns_by_default();
+    test_missing_field_errors_by_default();
+    test_multiple_missing_fields_are_reported();
     test_unknown_field_warns_by_default();
     test_duplicate_key_errors_by_default();
     test_strict_mode_promotes_warnings_to_errors();

@@ -1,0 +1,12 @@
+profile: demo
+codegen:
+  - yaml: simple.yaml
+    header: simple.h
+    output: ../cli_plan_simple.gen.h
+  - yaml:
+      - batch/alpha.yaml
+      - batch/beta.yaml
+    header: simple.h
+    output: ../cli_plan_batch.gen.h
+    map_name: cli_plan_map
+    map_type: cxgn_map_entry_t

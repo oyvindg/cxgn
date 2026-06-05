@@ -4,10 +4,10 @@
  */
 
 #include "internal.h"
+#include <ctype.h>
 #include <limits.h>
 #include <stdarg.h>
 #include <stdio.h>
-#include <yaml.h>
 
 typedef enum {
     YAML_VAL_NULL,
@@ -36,8 +36,6 @@ static void generated_field_cleanup(cxgn_field_info* field) {
     free(field->default_value);
     free(field->array_elem_type);
     free(field->optional_value_type);
-    for (size_t i = 0; i < field->variant_type_count; i++) free(field->variant_types[i]);
-    free(field->variant_types);
     memset(field, 0, sizeof(*field));
 }
 
@@ -118,6 +116,20 @@ static bool output_appendf(cxgn_output* out, const char* fmt, ...) {
     const bool ok = output_append(out, buf);
     free(buf);
     return ok;
+}
+
+static const char* skip_whitespace_local(const char* s) {
+    while (*s && isspace((unsigned char)*s)) s++;
+    return s;
+}
+
+static bool starts_with_local(const char* s, const char* prefix) {
+    return strncmp(s, prefix, strlen(prefix)) == 0;
+}
+
+static void trim_trailing_whitespace_local(char* s) {
+    size_t len = strlen(s);
+    while (len > 0 && isspace((unsigned char)s[len - 1])) s[--len] = '\0';
 }
 
 static void gen_indent(gen_context* ctx) {
@@ -239,10 +251,181 @@ static char* make_backing_name(gen_context* ctx) {
     return name;
 }
 
+static char* pointer_pointee_type(const char* type) {
+    if (!type) return NULL;
+
+    char* copy = cxgn_strdup(type);
+    if (!copy) return NULL;
+    trim_trailing_whitespace_local(copy);
+
+    char* star = strrchr(copy, '*');
+    if (!star) {
+        free(copy);
+        return NULL;
+    }
+    for (const char* p = star + 1; *p; p++) {
+        if (!isspace((unsigned char)*p)) {
+            free(copy);
+            return NULL;
+        }
+    }
+
+    *star = '\0';
+    trim_trailing_whitespace_local(copy);
+    char* base = (char*)skip_whitespace_local(copy);
+    if (starts_with_local(base, "const ")) base = (char*)skip_whitespace_local(base + strlen("const "));
+
+    if (strcmp(base, "char") == 0) {
+        free(copy);
+        return NULL;
+    }
+
+    char* result = cxgn_strdup(base);
+    free(copy);
+    return result;
+}
+
+static bool is_string_literal_type(const char* type) {
+    return type &&
+           (strcmp(type, "const char*") == 0 ||
+            strcmp(type, "std::string_view") == 0 ||
+            strcmp(type, "string_view") == 0);
+}
+
+static bool is_pointer_field_type(const char* type) {
+    char* pointee = pointer_pointee_type(type);
+    const bool is_pointer = pointee != NULL;
+    free(pointee);
+    return is_pointer;
+}
+
+static char* unqualified_type_name(const char* type) {
+    if (!type) return NULL;
+
+    char* copy = cxgn_strdup(type);
+    if (!copy) return NULL;
+    trim_trailing_whitespace_local(copy);
+
+    char* p = (char*)skip_whitespace_local(copy);
+    bool advanced = false;
+    for (;;) {
+        if (starts_with_local(p, "const ")) {
+            p = (char*)skip_whitespace_local(p + strlen("const "));
+            advanced = true;
+            continue;
+        }
+        if (starts_with_local(p, "volatile ")) {
+            p = (char*)skip_whitespace_local(p + strlen("volatile "));
+            advanced = true;
+            continue;
+        }
+        if (starts_with_local(p, "struct ")) {
+            p = (char*)skip_whitespace_local(p + strlen("struct "));
+            advanced = true;
+            continue;
+        }
+        break;
+    }
+
+    if (!advanced && p == copy) return copy;
+
+    char* result = cxgn_strdup(p);
+    free(copy);
+    return result;
+}
+
+static const cxgn_type_alias* find_alias_relaxed(const cxgn_struct_parser* parser, const char* type) {
+    const cxgn_type_alias* alias = cxgn_struct_parser_find_alias(parser, type);
+    if (alias) return alias;
+
+    char* unqualified = unqualified_type_name(type);
+    if (!unqualified) return NULL;
+    alias = (strcmp(unqualified, type) == 0)
+        ? NULL
+        : cxgn_struct_parser_find_alias(parser, unqualified);
+    free(unqualified);
+    return alias;
+}
+
+static const cxgn_struct_info* find_struct_relaxed(const cxgn_struct_parser* parser, const char* type) {
+    const cxgn_struct_info* info = cxgn_struct_parser_find_struct(parser, type);
+    if (info) return info;
+
+    char* unqualified = unqualified_type_name(type);
+    if (!unqualified) return NULL;
+    info = (strcmp(unqualified, type) == 0)
+        ? NULL
+        : cxgn_struct_parser_find_struct(parser, unqualified);
+    free(unqualified);
+    return info;
+}
+
+static const struct cxgn_enum_info* find_enum_relaxed(const cxgn_struct_parser* parser, const char* type) {
+    if (!parser || !type) return NULL;
+    for (size_t i = 0; i < parser->enum_count; i++) {
+        if (strcmp(parser->enums[i].name, type) == 0) return &parser->enums[i];
+    }
+
+    char* unqualified = unqualified_type_name(type);
+    if (!unqualified) return NULL;
+    for (size_t i = 0; i < parser->enum_count; i++) {
+        if (strcmp(parser->enums[i].name, unqualified) == 0) {
+            free(unqualified);
+            return &parser->enums[i];
+        }
+    }
+    free(unqualified);
+    return NULL;
+}
+
+static size_t enum_common_prefix_len(const struct cxgn_enum_info* info) {
+    if (!info || info->value_count == 0 || !info->values[0].name) return 0;
+    size_t prefix_len = strlen(info->values[0].name);
+    for (size_t i = 1; i < info->value_count; i++) {
+        size_t j = 0;
+        const char* name = info->values[i].name;
+        while (j < prefix_len && name && info->values[0].name[j] == name[j]) j++;
+        prefix_len = j;
+    }
+    while (prefix_len > 0 && info->values[0].name[prefix_len - 1] != '_') prefix_len--;
+    return prefix_len;
+}
+
+static bool enum_member_matches_yaml(const char* member_name, size_t prefix_len, const char* yaml_value) {
+    const char* tail;
+    size_t ti = 0;
+    size_t yi = 0;
+    if (!member_name || !yaml_value) return false;
+    if (strcmp(member_name, yaml_value) == 0) return true;
+    tail = member_name + prefix_len;
+    while (tail[ti] || yaml_value[yi]) {
+        while (tail[ti] == '_') ti++;
+        while (yaml_value[yi] == '_' || yaml_value[yi] == '-' || yaml_value[yi] == ' ') yi++;
+        if (!tail[ti] || !yaml_value[yi]) break;
+        if (tolower((unsigned char)tail[ti]) != tolower((unsigned char)yaml_value[yi])) return false;
+        ti++;
+        yi++;
+    }
+    while (tail[ti] == '_') ti++;
+    while (yaml_value[yi] == '_' || yaml_value[yi] == '-' || yaml_value[yi] == ' ') yi++;
+    return tail[ti] == '\0' && yaml_value[yi] == '\0';
+}
+
+static const char* find_enum_member_for_yaml(const struct cxgn_enum_info* info, const char* yaml_value) {
+    if (!info || !yaml_value) return NULL;
+    const size_t prefix_len = enum_common_prefix_len(info);
+    for (size_t i = 0; i < info->value_count; i++) {
+        if (enum_member_matches_yaml(info->values[i].name, prefix_len, yaml_value)) {
+            return info->values[i].name;
+        }
+    }
+    return NULL;
+}
+
 static bool populate_field_alias_traits(const cxgn_struct_parser* parser, cxgn_field_info* field) {
     const cxgn_type_alias* alias;
     if (!field || !field->type) return true;
-    alias = cxgn_struct_parser_find_alias(parser, field->type);
+    alias = find_alias_relaxed(parser, field->type);
     if (!alias) return true;
     if (alias->kind == CXGN_ALIAS_SCALAR) {
         /* Resolve the typedef to its underlying type so gen_scalar handles it correctly. */
@@ -266,26 +449,75 @@ static bool populate_field_alias_traits(const cxgn_struct_parser* parser, cxgn_f
     return true;
 }
 
-static bool gen_value(gen_context* ctx, yaml_document_t* doc, yaml_node_t* node,
-                      const cxgn_field_info* field);
+static bool gen_value(gen_context* ctx, const cxgn_node* node, const cxgn_field_info* field);
 
 void cxgn_validation_options_init(cxgn_validation_options* options) {
     if (!options) return;
     options->strict_mode = false;
     options->unknown_field = CXGN_VALIDATION_WARN;
     options->duplicate_key = CXGN_VALIDATION_ERROR;
-    options->missing_field = CXGN_VALIDATION_WARN;
+    options->missing_field = CXGN_VALIDATION_ERROR;
     options->diagnostic_fn = NULL;
     options->diagnostic_userdata = NULL;
 }
 
 static bool gen_scalar(gen_context* ctx,
-                       const char* value,
+                       const cxgn_node* node,
                        const cxgn_field_info* field,
                        const char* source_type) {
-    yaml_value_type vtype = detect_yaml_type(value);
+    const char* value = NULL;
+    char number_buf[64];
+    yaml_value_type vtype = YAML_VAL_STRING;
     const char* type = field ? field->type : NULL;
     const char* expr_type = source_type ? source_type : type;
+
+    if (!node) {
+        cxgn_error_set(ctx->err, CXGN_ERR_PARSE_ERROR, "Missing scalar node");
+        return false;
+    }
+
+    switch (node->type) {
+        case CXGN_NODE_NULL:
+            value = node->raw_scalar_text ? node->raw_scalar_text : "null";
+            vtype = YAML_VAL_NULL;
+            break;
+        case CXGN_NODE_BOOL:
+            value = node->raw_scalar_text ? node->raw_scalar_text
+                                          : (node->as.bool_value ? "true" : "false");
+            vtype = YAML_VAL_BOOL;
+            break;
+        case CXGN_NODE_INTEGER:
+            if (node->raw_scalar_text) {
+                value = node->raw_scalar_text;
+            } else {
+                if (snprintf(number_buf, sizeof(number_buf), "%lld", node->as.int_value) < 0) {
+                    cxgn_error_set(ctx->err, CXGN_ERR_OUT_OF_MEMORY, "Failed formatting integer scalar");
+                    return false;
+                }
+                value = number_buf;
+            }
+            vtype = YAML_VAL_INT;
+            break;
+        case CXGN_NODE_FLOAT:
+            if (node->raw_scalar_text) {
+                value = node->raw_scalar_text;
+            } else {
+                if (snprintf(number_buf, sizeof(number_buf), "%.17g", node->as.float_value) < 0) {
+                    cxgn_error_set(ctx->err, CXGN_ERR_OUT_OF_MEMORY, "Failed formatting float scalar");
+                    return false;
+                }
+                value = number_buf;
+            }
+            vtype = YAML_VAL_FLOAT;
+            break;
+        case CXGN_NODE_STRING:
+            value = node->as.string.data ? node->as.string.data : "";
+            vtype = detect_yaml_type(value);
+            break;
+        default:
+            cxgn_error_set(ctx->err, CXGN_ERR_TYPE_MISMATCH, "Expected scalar node");
+            return false;
+    }
 
     if (ctx->gen->has_expr_handler && expr_type &&
         ctx->gen->expr_handler.is_expression_field &&
@@ -322,6 +554,25 @@ static bool gen_scalar(gen_context* ctx,
         return true;
     }
 
+    const struct cxgn_enum_info* enum_info = type ? find_enum_relaxed(ctx->gen->parser, type) : NULL;
+    if (enum_info) {
+        if (node->type == CXGN_NODE_STRING) {
+            const char* enum_member = find_enum_member_for_yaml(enum_info, value);
+            if (!enum_member) {
+                char detail[512];
+                snprintf(detail, sizeof(detail), "Unknown enum value '%s' for type %s", value, type);
+                cxgn_error_set(ctx->err, CXGN_ERR_TYPE_MISMATCH, detail);
+                return false;
+            }
+            return output_append(ctx->out, enum_member);
+        }
+        if (vtype == YAML_VAL_INT) {
+            return output_append(ctx->out, value);
+        }
+        cxgn_error_set(ctx->err, CXGN_ERR_TYPE_MISMATCH, "Expected enum string or integer");
+        return false;
+    }
+
     if (type && strcmp(type, "bool") == 0) {
         return output_append(ctx->out, yaml_to_bool(value) ? "true" : "false");
     }
@@ -337,7 +588,8 @@ static bool gen_scalar(gen_context* ctx,
         if (vtype == YAML_VAL_INT) output_append(ctx->out, ".0");
         return true;
     }
-    if (type && strcmp(type, "const char*") == 0) {
+    if (is_string_literal_type(type)) {
+        if (node->type == CXGN_NODE_NULL) return output_append(ctx->out, "0");
         char* escaped = escape_string(value);
         if (!escaped) return false;
         const bool ok = output_appendf(ctx->out, "\"%s\"", escaped);
@@ -391,16 +643,18 @@ static char* make_child_path(const cxgn_path* path, const char* child) {
     return full;
 }
 
-static void apply_node_mark(cxgn_error* err, const yaml_node_t* node) {
+static void apply_node_mark(cxgn_error* err, const cxgn_node* node) {
     if (!err || !node) return;
-    err->line = (size_t)node->start_mark.line + 1;
-    err->column = (size_t)node->start_mark.column + 1;
+    err->line = node->line;
+    err->column = node->column;
 }
 
 static bool emit_validation(gen_context* ctx,
                             cxgn_validation_action action,
                             cxgn_error_code code,
-                            const yaml_node_t* node,
+                            const cxgn_node* node,
+                            size_t line,
+                            size_t column,
                             const char* path,
                             const char* fmt, ...) {
     if (ctx->gen->validation.strict_mode && action != CXGN_VALIDATION_IGNORE) {
@@ -430,6 +684,8 @@ static bool emit_validation(gen_context* ctx,
     diagnostic.path = owned_path;
     diagnostic.needs_free = true;
     apply_node_mark(&diagnostic, node);
+    if (diagnostic.line == 0) diagnostic.line = line;
+    if (diagnostic.column == 0) diagnostic.column = column;
 
     if (ctx->gen->validation.diagnostic_fn) {
         cxgn_diagnostic_level level = action == CXGN_VALIDATION_ERROR
@@ -468,11 +724,31 @@ static size_t find_field_index(const gen_context* ctx,
     return (size_t)-1;
 }
 
+static const cxgn_node* find_field_value_node(const gen_context* ctx,
+                                              const cxgn_node* object_node,
+                                              const cxgn_field_info* field) {
+    char* snake;
+    const cxgn_node* value = NULL;
+
+    if (!object_node || object_node->type != CXGN_NODE_OBJECT || !field) return NULL;
+
+    snake = cxgn_to_snake_case(ctx->gen->utils, field->name);
+    for (size_t i = 0; i < object_node->as.object.count; i++) {
+        const cxgn_object_entry* entry = &object_node->as.object.entries[i];
+        if (strcmp(entry->key, field->name) == 0 || (snake && strcmp(entry->key, snake) == 0)) {
+            value = entry->value;
+            break;
+        }
+    }
+    free(snake);
+    return value;
+}
+
 static bool validate_struct_mapping(gen_context* ctx,
-                                    yaml_document_t* doc,
-                                    yaml_node_t* node,
+                                    const cxgn_node* node,
                                     const cxgn_struct_info* info) {
     bool* seen = NULL;
+    bool had_error = false;
     if (info->field_count > 0) {
         seen = (bool*)calloc(info->field_count, sizeof(*seen));
         if (!seen) {
@@ -481,12 +757,9 @@ static bool validate_struct_mapping(gen_context* ctx,
         }
     }
 
-    for (yaml_node_pair_t* pair = node->data.mapping.pairs.start;
-         pair < node->data.mapping.pairs.top; pair++) {
-        yaml_node_t* key = yaml_document_get_node(doc, pair->key);
-        if (!key || key->type != YAML_SCALAR_NODE) continue;
-
-        const char* key_text = (const char*)key->data.scalar.value;
+    for (size_t i = 0; i < node->as.object.count; i++) {
+        const cxgn_object_entry* entry = &node->as.object.entries[i];
+        const char* key_text = entry->key;
         size_t field_index = find_field_index(ctx, info, key_text);
         char* key_path = make_child_path(ctx->path, key_text);
         if (!key_path) {
@@ -499,14 +772,19 @@ static bool validate_struct_mapping(gen_context* ctx,
             const bool ok = emit_validation(ctx,
                                             ctx->gen->validation.unknown_field,
                                             CXGN_ERR_UNKNOWN_FIELD,
-                                            key,
+                                            entry->value,
+                                            entry->line,
+                                            entry->column,
                                             key_path,
                                             "Unknown field '%s'",
                                             key_text);
             free(key_path);
             if (!ok) {
-                free(seen);
-                return false;
+                if (ctx->err && ctx->err->code == CXGN_ERR_OUT_OF_MEMORY) {
+                    free(seen);
+                    return false;
+                }
+                had_error = true;
             }
             continue;
         }
@@ -515,14 +793,19 @@ static bool validate_struct_mapping(gen_context* ctx,
             const bool ok = emit_validation(ctx,
                                             ctx->gen->validation.duplicate_key,
                                             CXGN_ERR_DUPLICATE_KEY,
-                                            key,
+                                            entry->value,
+                                            entry->line,
+                                            entry->column,
                                             key_path,
                                             "Duplicate mapping for field '%s'",
                                             info->fields[field_index].name);
             free(key_path);
             if (!ok) {
-                free(seen);
-                return false;
+                if (ctx->err && ctx->err->code == CXGN_ERR_OUT_OF_MEMORY) {
+                    free(seen);
+                    return false;
+                }
+                had_error = true;
             }
             continue;
         }
@@ -534,6 +817,8 @@ static bool validate_struct_mapping(gen_context* ctx,
     for (size_t i = 0; i < info->field_count; i++) {
         if (seen && seen[i]) continue;
         if (info->fields[i].is_optional) continue;
+        if (is_pointer_field_type(info->fields[i].type)) continue;
+        if (is_string_literal_type(info->fields[i].type)) continue;
 
         char* field_path = make_child_path(ctx->path, info->fields[i].name);
         if (!field_path) {
@@ -546,28 +831,64 @@ static bool validate_struct_mapping(gen_context* ctx,
                                         ctx->gen->validation.missing_field,
                                         CXGN_ERR_MISSING_FIELD,
                                         node,
+                                        node->line,
+                                        node->column,
                                         field_path,
-                                        "Missing required field '%s'; using zero-initialized fallback",
+                                        "Missing required field '%s'",
                                         info->fields[i].name);
         free(field_path);
         if (!ok) {
-            free(seen);
-            return false;
+            if (ctx->err && ctx->err->code == CXGN_ERR_OUT_OF_MEMORY) {
+                free(seen);
+                return false;
+            }
+            had_error = true;
         }
     }
 
     free(seen);
-    return true;
+    return !had_error;
 }
 
-static bool gen_struct_value(gen_context* ctx, yaml_document_t* doc, yaml_node_t* node,
+static const cxgn_object_entry* find_object_entry_exact(const cxgn_node* object_node,
+                                                        const char* key) {
+    if (!object_node || object_node->type != CXGN_NODE_OBJECT || !key) return NULL;
+    for (size_t i = 0; i < object_node->as.object.count; i++) {
+        const cxgn_object_entry* entry = &object_node->as.object.entries[i];
+        if (strcmp(entry->key, key) == 0) return entry;
+    }
+    return NULL;
+}
+
+static void set_context_error(gen_context* ctx,
+                              cxgn_error_code code,
+                              const cxgn_node* node,
+                              const char* message) {
+    if (!ctx || !ctx->err) return;
+    char* path = cxgn_path_to_string(ctx->path);
+    char* owned_message = cxgn_strdup(message ? message : cxgn_error_string(code));
+    if (!owned_message) {
+        free(path);
+        cxgn_error_set(ctx->err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
+        return;
+    }
+    cxgn_error_clear(ctx->err);
+    ctx->err->code = code;
+    ctx->err->message = owned_message;
+    ctx->err->path = path;
+    ctx->err->line = node ? node->line : 0;
+    ctx->err->column = node ? node->column : 0;
+    ctx->err->needs_free = true;
+}
+
+static bool gen_struct_value(gen_context* ctx, const cxgn_node* node,
                              const cxgn_struct_info* info) {
-    if (node->type != YAML_MAPPING_NODE) {
+    if (!node || node->type != CXGN_NODE_OBJECT) {
         cxgn_error_set(ctx->err, CXGN_ERR_TYPE_MISMATCH, "Expected mapping for struct");
         return false;
     }
 
-    if (!validate_struct_mapping(ctx, doc, node, info)) {
+    if (!validate_struct_mapping(ctx, node, info)) {
         return false;
     }
 
@@ -576,32 +897,21 @@ static bool gen_struct_value(gen_context* ctx, yaml_document_t* doc, yaml_node_t
 
     for (size_t i = 0; i < info->field_count; i++) {
         const cxgn_field_info* field = &info->fields[i];
-        char* snake = cxgn_to_snake_case(ctx->gen->utils, field->name);
-        yaml_node_t* value_node = NULL;
-
-        for (yaml_node_pair_t* pair = node->data.mapping.pairs.start;
-             pair < node->data.mapping.pairs.top; pair++) {
-            yaml_node_t* key = yaml_document_get_node(doc, pair->key);
-            if (!key || key->type != YAML_SCALAR_NODE) continue;
-            const char* key_text = (const char*)key->data.scalar.value;
-            if (strcmp(key_text, field->name) == 0 || (snake && strcmp(key_text, snake) == 0)) {
-                value_node = yaml_document_get_node(doc, pair->value);
-                break;
-            }
-        }
-        free(snake);
+        const cxgn_node* value_node = find_field_value_node(ctx, node, field);
 
         gen_indent(ctx);
         output_appendf(ctx->out, ".%s = ", field->name);
         if (value_node) {
             cxgn_path_push(ctx->path, field->name);
-            if (!gen_value(ctx, doc, value_node, field)) {
+            if (!gen_value(ctx, value_node, field)) {
                 cxgn_path_pop(ctx->path);
                 return false;
             }
             cxgn_path_pop(ctx->path);
         } else if (field->is_optional) {
             output_append(ctx->out, "{.has_value = false}");
+        } else if (is_pointer_field_type(field->type) || is_string_literal_type(field->type)) {
+            output_append(ctx->out, "0");
         } else {
             output_append(ctx->out, "{0}");
         }
@@ -616,9 +926,9 @@ static bool gen_struct_value(gen_context* ctx, yaml_document_t* doc, yaml_node_t
     return true;
 }
 
-static bool gen_array(gen_context* ctx, yaml_document_t* doc, yaml_node_t* node,
+static bool gen_array(gen_context* ctx, const cxgn_node* node,
                       const cxgn_field_info* field) {
-    if (node->type != YAML_SEQUENCE_NODE) {
+    if (!node || node->type != CXGN_NODE_ARRAY) {
         cxgn_error_set(ctx->err, CXGN_ERR_TYPE_MISMATCH, "Expected sequence for array");
         return false;
     }
@@ -633,9 +943,8 @@ static bool gen_array(gen_context* ctx, yaml_document_t* doc, yaml_node_t* node,
     }
 
     size_t count = 0;
-    for (yaml_node_item_t* item = node->data.sequence.items.start;
-         item < node->data.sequence.items.top; item++, count++) {
-        yaml_node_t* elem = yaml_document_get_node(doc, *item);
+    for (size_t i = 0; i < node->as.array.count; i++, count++) {
+        const cxgn_node* elem = node->as.array.items[i];
         if (count > 0) output_append(temp, ", ");
         cxgn_field_info elem_field = {0};
         elem_field.type = cxgn_strdup(field->array_elem_type);
@@ -649,7 +958,7 @@ static bool gen_array(gen_context* ctx, yaml_document_t* doc, yaml_node_t* node,
         cxgn_output* saved = ctx->out;
         ctx->out = temp;
         cxgn_path_push_index(ctx->path, count);
-        const bool ok = gen_value(ctx, doc, elem, &elem_field);
+        const bool ok = gen_value(ctx, elem, &elem_field);
         cxgn_path_pop(ctx->path);
         ctx->out = saved;
         generated_field_cleanup(&elem_field);
@@ -660,8 +969,15 @@ static bool gen_array(gen_context* ctx, yaml_document_t* doc, yaml_node_t* node,
         }
     }
 
-    output_appendf(ctx->backing, "static const %s %s_data[] = {%s};\n",
-                   field->array_elem_type, backing_name, temp->code);
+    const char* storage_elem_type = field->array_elem_type;
+    if (!storage_elem_type) {
+        cxgn_output_free(temp);
+        free(backing_name);
+        cxgn_error_set(ctx->err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
+        return false;
+    }
+    output_appendf(ctx->backing, "static %s %s_data[] = {%s};\n",
+                   storage_elem_type, backing_name, temp->code);
     output_appendf(ctx->out, "{.data = %s_data, .count = %zu}", backing_name, count);
 
     cxgn_output_free(temp);
@@ -669,10 +985,9 @@ static bool gen_array(gen_context* ctx, yaml_document_t* doc, yaml_node_t* node,
     return true;
 }
 
-static bool gen_optional(gen_context* ctx, yaml_document_t* doc, yaml_node_t* node,
+static bool gen_optional(gen_context* ctx, const cxgn_node* node,
                          const cxgn_field_info* field) {
-    if (node->type == YAML_SCALAR_NODE &&
-        detect_yaml_type((const char*)node->data.scalar.value) == YAML_VAL_NULL) {
+    if (node && node->type == CXGN_NODE_NULL) {
         return output_append(ctx->out, "{.has_value = false}");
     }
 
@@ -684,19 +999,68 @@ static bool gen_optional(gen_context* ctx, yaml_document_t* doc, yaml_node_t* no
         cxgn_error_set(ctx->err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
         return false;
     }
-    const bool ok = gen_value(ctx, doc, node, &inner);
+    const bool ok = gen_value(ctx, node, &inner);
     generated_field_cleanup(&inner);
     output_append(ctx->out, ", .has_value = true}");
     return ok;
 }
 
-static bool gen_value(gen_context* ctx, yaml_document_t* doc, yaml_node_t* node,
+static bool gen_pointer(gen_context* ctx, const cxgn_node* node,
+                        const cxgn_field_info* field) {
+    if (!node || node->type == CXGN_NODE_NULL) {
+        return output_append(ctx->out, "0");
+    }
+
+    char* pointee_type = pointer_pointee_type(field->type);
+    char* backing_name = make_backing_name(ctx);
+    cxgn_output* temp = output_new();
+    if (!pointee_type || !backing_name || !temp) {
+        free(pointee_type);
+        free(backing_name);
+        cxgn_output_free(temp);
+        cxgn_error_set(ctx->err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
+        return false;
+    }
+
+    cxgn_field_info pointee = {0};
+    pointee.type = cxgn_strdup(pointee_type);
+    if (!pointee.type || !populate_field_alias_traits(ctx->gen->parser, &pointee)) {
+        generated_field_cleanup(&pointee);
+        free(pointee_type);
+        free(backing_name);
+        cxgn_output_free(temp);
+        cxgn_error_set(ctx->err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
+        return false;
+    }
+
+    cxgn_output* saved = ctx->out;
+    ctx->out = temp;
+    const bool ok = gen_value(ctx, node, &pointee);
+    ctx->out = saved;
+    generated_field_cleanup(&pointee);
+    if (!ok) {
+        free(pointee_type);
+        free(backing_name);
+        cxgn_output_free(temp);
+        return false;
+    }
+
+    output_appendf(ctx->backing, "static const %s %s = %s;\n",
+                   pointee_type, backing_name, temp->code);
+    output_appendf(ctx->out, "&%s", backing_name);
+
+    free(pointee_type);
+    free(backing_name);
+    cxgn_output_free(temp);
+    return true;
+}
+
+static bool gen_value(gen_context* ctx, const cxgn_node* node,
                       const cxgn_field_info* field) {
     cxgn_field_info derived = {0};
     derived.type = cxgn_strdup(field->type);
     derived.is_array = field->is_array;
     derived.is_optional = field->is_optional;
-    derived.is_variant = field->is_variant;
     derived.array_elem_type = field->array_elem_type ? cxgn_strdup(field->array_elem_type) : NULL;
     derived.optional_value_type = field->optional_value_type ? cxgn_strdup(field->optional_value_type) : NULL;
     if (!derived.type || (field->array_elem_type && !derived.array_elem_type) ||
@@ -711,34 +1075,39 @@ static bool gen_value(gen_context* ctx, yaml_document_t* doc, yaml_node_t* node,
         return false;
     }
 
-    if (derived.is_variant) {
-        generated_field_cleanup(&derived);
-        cxgn_error_set(ctx->err, CXGN_ERR_UNKNOWN_TYPE, "Tagged unions are not implemented in pure-C mode");
-        return false;
-    }
     if (derived.is_array) {
-        const bool ok = gen_array(ctx, doc, node, &derived);
+        const bool ok = gen_array(ctx, node, &derived);
         generated_field_cleanup(&derived);
         return ok;
     }
     if (derived.is_optional) {
-        const bool ok = gen_optional(ctx, doc, node, &derived);
+        const bool ok = gen_optional(ctx, node, &derived);
         generated_field_cleanup(&derived);
         return ok;
     }
-    if (node->type == YAML_SCALAR_NODE) {
-        const bool ok = gen_scalar(ctx, (const char*)node->data.scalar.value, &derived, field->type);
+    if (is_pointer_field_type(derived.type)) {
+        const bool ok = gen_pointer(ctx, node, &derived);
         generated_field_cleanup(&derived);
         return ok;
     }
-    if (node->type == YAML_MAPPING_NODE) {
-        const cxgn_struct_info* nested = cxgn_struct_parser_find_struct(ctx->gen->parser, field->type);
+    if (node->type == CXGN_NODE_NULL || node->type == CXGN_NODE_BOOL ||
+        node->type == CXGN_NODE_INTEGER || node->type == CXGN_NODE_FLOAT ||
+        node->type == CXGN_NODE_STRING) {
+        const bool ok = gen_scalar(ctx, node, &derived, field->type);
+        generated_field_cleanup(&derived);
+        return ok;
+    }
+    if (node->type == CXGN_NODE_OBJECT) {
+        const cxgn_struct_info* nested = find_struct_relaxed(ctx->gen->parser, derived.type);
         if (!nested) {
+            char detail[512];
+            snprintf(detail, sizeof(detail), "Unknown struct type: %s",
+                     derived.type ? derived.type : "<null>");
             generated_field_cleanup(&derived);
-            cxgn_error_set(ctx->err, CXGN_ERR_UNKNOWN_STRUCT, "Unknown struct type");
+            cxgn_error_set(ctx->err, CXGN_ERR_UNKNOWN_STRUCT, detail);
             return false;
         }
-        const bool ok = gen_struct_value(ctx, doc, node, nested);
+        const bool ok = gen_struct_value(ctx, node, nested);
         generated_field_cleanup(&derived);
         return ok;
     }
@@ -779,6 +1148,7 @@ void cxgn_generator_free(cxgn_generator* gen) {
         return;
     }
     free(gen->helpers_header);
+    free(gen->root_struct_name);
     free(gen->symbol_prefix);
     cxgn_struct_parser_free(gen->parser);
     cxgn_string_utils_free(gen->utils);
@@ -808,6 +1178,14 @@ void cxgn_generator_set_helpers_header(cxgn_generator* gen, const char* helpers_
     gen->helpers_header = next;
 }
 
+void cxgn_generator_set_root_struct(cxgn_generator* gen, const char* root_struct_name) {
+    if (!gen) return;
+    char* next = root_struct_name ? cxgn_strdup(root_struct_name) : NULL;
+    if (root_struct_name && !next) return;
+    free(gen->root_struct_name);
+    gen->root_struct_name = next;
+}
+
 void cxgn_generator_set_symbol_prefix(cxgn_generator* gen, const char* prefix) {
     if (!gen) return;
     char* next = prefix ? cxgn_strdup(prefix) : NULL;
@@ -832,17 +1210,65 @@ static bool emit_helper_typedefs(cxgn_output* out, const cxgn_generator* gen) {
     return true;
 }
 
-static cxgn_output* cxgn_generate_from_document(cxgn_generator* gen, yaml_document_t* doc,
-                                                const char* yaml_path, const char* header_path,
-                                                cxgn_error* err) {
-    yaml_node_t* root = yaml_document_get_root_node(doc);
-    if (!root || root->type != YAML_MAPPING_NODE) {
-        cxgn_error_set(err, CXGN_ERR_YAML_ERROR, "YAML root must be a mapping");
+static void set_located_error(cxgn_error* err,
+                              cxgn_error_code code,
+                              const char* message,
+                              const char* path,
+                              size_t line,
+                              size_t column) {
+    char* owned_message = NULL;
+    char* owned_path = NULL;
+
+    if (!err) return;
+
+    owned_message = cxgn_strdup(message ? message : cxgn_error_string(code));
+    if (!owned_message) {
+        cxgn_error_set(err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
+        return;
+    }
+
+    if (path) {
+        owned_path = cxgn_strdup(path);
+        if (!owned_path) {
+            free(owned_message);
+            cxgn_error_set(err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
+            return;
+        }
+    }
+
+    cxgn_error_clear(err);
+    err->code = code;
+    err->message = owned_message;
+    err->path = owned_path;
+    err->line = line;
+    err->column = column;
+    err->needs_free = true;
+}
+
+cxgn_output* cxgn_generate_from_document(cxgn_generator* gen, const cxgn_document* doc,
+                                         const char* yaml_path, const char* header_path,
+                                         cxgn_error* err) {
+    const cxgn_node* root = doc ? doc->root : NULL;
+    if (!root || root->type != CXGN_NODE_OBJECT) {
+        set_located_error(err, CXGN_ERR_YAML_ERROR, "YAML root must be a mapping",
+                          yaml_path, root ? root->line : 0, root ? root->column : 0);
         return NULL;
     }
 
     const size_t count = cxgn_struct_parser_get_struct_count(gen->parser);
-    const cxgn_struct_info* root_struct = count ? cxgn_struct_parser_get_struct(gen->parser, count - 1) : NULL;
+    const cxgn_struct_info* root_struct = NULL;
+    if (gen->root_struct_name && gen->root_struct_name[0]) {
+        root_struct = cxgn_struct_parser_find_struct(gen->parser, gen->root_struct_name);
+        if (!root_struct) {
+            char detail[512];
+            snprintf(detail, sizeof(detail), "Root struct '%s' not found in header",
+                     gen->root_struct_name);
+            cxgn_error_set(err, CXGN_ERR_UNKNOWN_STRUCT, detail);
+            return NULL;
+        }
+    } else if (count) {
+        root_struct = cxgn_struct_parser_get_struct(gen->parser, count - 1);
+    }
     if (!root_struct) {
         cxgn_error_set(err, CXGN_ERR_UNKNOWN_STRUCT, "No struct found in header");
         return NULL;
@@ -852,14 +1278,6 @@ static cxgn_output* cxgn_generate_from_document(cxgn_generator* gen, yaml_docume
     cxgn_output* backing = output_new();
     cxgn_path* path = cxgn_path_new();
     if (!out || !backing || !path) {
-        cxgn_output_free(out);
-        cxgn_output_free(backing);
-        cxgn_path_free(path);
-        cxgn_error_set(err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
-        return NULL;
-    }
-
-    if (!emit_helper_typedefs(out, gen)) {
         cxgn_output_free(out);
         cxgn_output_free(backing);
         cxgn_path_free(path);
@@ -880,7 +1298,7 @@ static cxgn_output* cxgn_generate_from_document(cxgn_generator* gen, yaml_docume
     const char* sym_pfx = gen->symbol_prefix ? gen->symbol_prefix : "";
     cxgn_path_push(path, root_struct->name);
     output_appendf(out, "static const %s %sconfig = ", root_struct->name, sym_pfx);
-    if (!gen_struct_value(&ctx, doc, root, root_struct)) {
+    if (!gen_struct_value(&ctx, root, root_struct)) {
         cxgn_path_free(path);
         cxgn_output_free(out);
         cxgn_output_free(backing);
@@ -898,6 +1316,14 @@ static cxgn_output* cxgn_generate_from_document(cxgn_generator* gen, yaml_docume
         return NULL;
     }
 
+    if (!emit_helper_typedefs(final, gen)) {
+        cxgn_path_free(path);
+        cxgn_output_free(out);
+        cxgn_output_free(backing);
+        cxgn_output_free(final);
+        cxgn_error_set(err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
+        return NULL;
+    }
     output_append(final, backing->code);
     if (backing->length > 0) output_append(final, "\n");
     output_append(final, out->code);
@@ -916,31 +1342,11 @@ cxgn_output* cxgn_generate(cxgn_generator* gen, const char* yaml_path,
         return NULL;
     }
 
-    FILE* f = fopen(yaml_path, "r");
-    if (!f) {
-        cxgn_error_set(err, CXGN_ERR_FILE_NOT_FOUND, "Cannot open YAML file");
-        return NULL;
-    }
+    cxgn_document* doc = cxgn_document_from_yaml_file(yaml_path, err);
+    if (!doc) return NULL;
 
-    yaml_parser_t parser;
-    yaml_document_t doc;
-    if (!yaml_parser_initialize(&parser)) {
-        fclose(f);
-        cxgn_error_set(err, CXGN_ERR_YAML_ERROR, "Failed to initialize YAML parser");
-        return NULL;
-    }
-    yaml_parser_set_input_file(&parser, f);
-    if (!yaml_parser_load(&parser, &doc)) {
-        yaml_parser_delete(&parser);
-        fclose(f);
-        cxgn_error_set(err, CXGN_ERR_YAML_ERROR, "Failed to parse YAML");
-        return NULL;
-    }
-
-    cxgn_output* result = cxgn_generate_from_document(gen, &doc, yaml_path, header_path, err);
-    yaml_document_delete(&doc);
-    yaml_parser_delete(&parser);
-    fclose(f);
+    cxgn_output* result = cxgn_generate_from_document(gen, doc, yaml_path, header_path, err);
+    cxgn_document_free(doc);
     return result;
 }
 
@@ -953,22 +1359,11 @@ cxgn_output* cxgn_generate_from_yaml_text(cxgn_generator* gen, const char* yaml_
         return NULL;
     }
 
-    yaml_parser_t parser;
-    yaml_document_t doc;
-    if (!yaml_parser_initialize(&parser)) {
-        cxgn_error_set(err, CXGN_ERR_YAML_ERROR, "Failed to initialize YAML parser");
-        return NULL;
-    }
-    yaml_parser_set_input_string(&parser, (const unsigned char*)yaml_text, strlen(yaml_text));
-    if (!yaml_parser_load(&parser, &doc)) {
-        yaml_parser_delete(&parser);
-        cxgn_error_set(err, CXGN_ERR_YAML_ERROR, "Failed to parse YAML");
-        return NULL;
-    }
-
     const char* diag_path = (yaml_virtual_path && yaml_virtual_path[0]) ? yaml_virtual_path : "<in-memory-yaml>";
-    cxgn_output* result = cxgn_generate_from_document(gen, &doc, diag_path, header_path, err);
-    yaml_document_delete(&doc);
-    yaml_parser_delete(&parser);
+    cxgn_document* doc = cxgn_document_from_yaml_text(yaml_text, diag_path, err);
+    if (!doc) return NULL;
+
+    cxgn_output* result = cxgn_generate_from_document(gen, doc, diag_path, header_path, err);
+    cxgn_document_free(doc);
     return result;
 }

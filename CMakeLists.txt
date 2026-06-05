@@ -1,5 +1,21 @@
 cmake_minimum_required(VERSION 3.20)
-project(cxgn VERSION 1.0.1 LANGUAGES C)
+
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/include/cxgn/cxgn.h" CXGN_VERSION_DEFINES
+    REGEX "^#define CXGN_VERSION_(MAJOR|MINOR|PATCH) [0-9]+$"
+)
+foreach(CXGN_VERSION_DEFINE IN LISTS CXGN_VERSION_DEFINES)
+    if(CXGN_VERSION_DEFINE MATCHES "^#define CXGN_VERSION_([A-Z]+) ([0-9]+)$")
+        set(CXGN_VERSION_${CMAKE_MATCH_1} "${CMAKE_MATCH_2}")
+    endif()
+endforeach()
+if(NOT DEFINED CXGN_VERSION_MAJOR OR NOT DEFINED CXGN_VERSION_MINOR OR NOT DEFINED CXGN_VERSION_PATCH)
+    message(FATAL_ERROR "Failed to parse CXGN_VERSION_* from include/cxgn/cxgn.h")
+endif()
+
+project(cxgn
+    VERSION "${CXGN_VERSION_MAJOR}.${CXGN_VERSION_MINOR}.${CXGN_VERSION_PATCH}"
+    LANGUAGES C
+)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -32,6 +48,7 @@ endif()
 # C Library (core)
 # ═══════════════════════════════════════════════════════════════════════════
 set(CXGN_SOURCES
+    src/document.c
     src/string_utils.c
     src/path.c
     src/struct_parser.c
@@ -39,6 +56,7 @@ set(CXGN_SOURCES
 
 if(CXGN_YAML_SUPPORT)
     list(APPEND CXGN_SOURCES
+        src/yaml_document.c
         src/code_generator.c
         src/glob.c
         src/batch.c

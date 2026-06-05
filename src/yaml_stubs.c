@@ -16,7 +16,7 @@ void cxgn_validation_options_init(cxgn_validation_options* options) {
     options->strict_mode = false;
     options->unknown_field = CXGN_VALIDATION_WARN;
     options->duplicate_key = CXGN_VALIDATION_ERROR;
-    options->missing_field = CXGN_VALIDATION_WARN;
+    options->missing_field = CXGN_VALIDATION_ERROR;
     options->diagnostic_fn = NULL;
     options->diagnostic_userdata = NULL;
 }
@@ -77,6 +77,7 @@ void cxgn_generator_free(cxgn_generator* gen) {
         return;
     }
     free(gen->helpers_header);
+    free(gen->root_struct_name);
     free(gen->symbol_prefix);
     cxgn_struct_parser_free(gen->parser);
     cxgn_string_utils_free(gen->utils);
@@ -117,6 +118,14 @@ void cxgn_generator_set_helpers_header(cxgn_generator* gen, const char* helpers_
     gen->helpers_header = next;
 }
 
+void cxgn_generator_set_root_struct(cxgn_generator* gen, const char* root_struct_name) {
+    if (!gen) return;
+    char* next = root_struct_name ? cxgn_strdup(root_struct_name) : NULL;
+    if (root_struct_name && !next) return;
+    free(gen->root_struct_name);
+    gen->root_struct_name = next;
+}
+
 void cxgn_generator_set_symbol_prefix(cxgn_generator* gen, const char* prefix) {
     if (!gen) return;
     char* next = prefix ? cxgn_strdup(prefix) : NULL;
@@ -125,10 +134,32 @@ void cxgn_generator_set_symbol_prefix(cxgn_generator* gen, const char* prefix) {
     gen->symbol_prefix = next;
 }
 
+bool cxgn_struct_parser_parse_text(cxgn_struct_parser* parser,
+                                   const char* header_text,
+                                   const char* source_name,
+                                   cxgn_error* err) {
+    (void)parser;
+    (void)header_text;
+    (void)source_name;
+    set_feature_disabled(err);
+    return false;
+}
+
 cxgn_output* cxgn_generate(cxgn_generator* gen, const char* yaml_path,
                            const char* header_path, cxgn_error* err) {
     (void)gen;
     (void)yaml_path;
+    (void)header_path;
+    set_feature_disabled(err);
+    return NULL;
+}
+
+cxgn_output* cxgn_generate_from_document(cxgn_generator* gen, const cxgn_document* doc,
+                                         const char* yaml_virtual_path, const char* header_path,
+                                         cxgn_error* err) {
+    (void)gen;
+    (void)doc;
+    (void)yaml_virtual_path;
     (void)header_path;
     set_feature_disabled(err);
     return NULL;

@@ -39,7 +39,7 @@ static void test_output_retain_semantics(void) {
     cxgn_output* alias = cxgn_output_retain(out);
     cxgn_output_free(out);
 
-    assert(strstr(cxgn_output_get_code(alias), ".skybox = {.has_value = false}") != NULL);
+    assert(strstr(cxgn_output_get_code(alias), ".skybox = 0") != NULL);
 
     cxgn_output_free(alias);
     cxgn_generator_free(gen);

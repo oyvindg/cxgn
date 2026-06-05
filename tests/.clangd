@@ -1,0 +1,7 @@
+CompileFlags:
+  CompilationDatabase: ../build
+  Compiler: gcc-14
+  Add:
+    - -std=c11
+    - -I../include
+    - -I../src

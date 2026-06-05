@@ -26,11 +26,12 @@ static const char* const error_strings[] = {
     [CXGN_ERR_EXPRESSION_ERROR] = "Expression error",
     [CXGN_ERR_DUPLICATE_KEY] = "Duplicate key",
     [CXGN_ERR_UNKNOWN_FIELD] = "Unknown field",
-    [CXGN_ERR_FEATURE_DISABLED] = "Feature disabled"
+    [CXGN_ERR_FEATURE_DISABLED] = "Feature disabled",
+    [CXGN_ERR_UNSUPPORTED_TYPE] = "Unsupported type"
 };
 
 const char* cxgn_error_string(cxgn_error_code code) {
-    if (code >= 0 && code <= CXGN_ERR_FEATURE_DISABLED) {
+    if (code >= 0 && code <= CXGN_ERR_UNSUPPORTED_TYPE) {
         return error_strings[code];
     }
     return "Unknown error";

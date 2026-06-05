@@ -23,7 +23,6 @@ static void test_custom_type_output_options(void) {
     const cxgn_type_options opts = {
         .array_wrapper = "Vec",
         .optional_wrapper = "Maybe",
-        .variant_wrapper = "std::variant",
         .array_ctor_fmt = "Vec<%s>{%s_data, %s}",
         .optional_empty_fmt = "Maybe<%s>::empty()",
         .optional_value_prefix_fmt = "Maybe<%s>{",
@@ -41,8 +40,10 @@ static void test_custom_type_output_options(void) {
 
     const char* code = cxgn_output_get_code(out);
     assert(code != NULL);
-    assert(strstr(code, "Vec<int>{") != NULL);
-    assert(strstr(code, "Maybe<int>::empty()") != NULL);
+    assert(strstr(code, "Vec<int>{") == NULL);
+    assert(strstr(code, "Maybe<int>::empty()") == NULL);
+    assert(strstr(code, ".values = {.data = _backing_") != NULL);
+    assert(strstr(code, ".max_items = {.has_value = false}") != NULL);
 
     cxgn_output_free(out);
     cxgn_generator_free(gen);

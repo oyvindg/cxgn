@@ -4,7 +4,7 @@
  *
  * Each entry is generated with a unique symbol prefix so all static
  * variables coexist in one translation unit without collision.
- * A keyed map array is appended at the end of the combined output.
+ * A keyed map registry is appended at the end of the combined output.
  */
 
 #define _POSIX_C_SOURCE 200809L
@@ -387,9 +387,10 @@ bool cxgn_batch_generate_detailed(cxgn_batch* batch,
 
     const char* map_root = effective_options.map_root;
     const char* map_name = effective_options.map_name ? effective_options.map_name
-                                                      : "cxgn_config_map";
+                                                      : "config";
     const char* map_type = effective_options.map_type ? effective_options.map_type
                                                       : "cxgn_map_entry_t";
+    char* map_registry_type = NULL;
     const bool continue_on_error = effective_options.continue_on_error;
 
     /* Determine root struct name from the parsed header */
@@ -399,9 +400,30 @@ bool cxgn_batch_generate_detailed(cxgn_batch* batch,
         cxgn_error_set(err, CXGN_ERR_UNKNOWN_STRUCT, "No struct found in header");
         return false;
     }
-    const cxgn_struct_info* root_struct =
-        cxgn_struct_parser_get_struct(parser, struct_count - 1);
+    const cxgn_struct_info* root_struct = NULL;
+    if (batch->gen->root_struct_name && batch->gen->root_struct_name[0] != '\0') {
+        root_struct = cxgn_struct_parser_find_struct(parser, batch->gen->root_struct_name);
+        if (!root_struct) {
+            cxgn_error_set(err, CXGN_ERR_UNKNOWN_STRUCT, "Requested root struct not found in header");
+            return false;
+        }
+    } else {
+        root_struct = cxgn_struct_parser_get_struct(parser, struct_count - 1);
+    }
     const char* struct_name = cxgn_struct_get_name(root_struct);
+    {
+        const int needed = snprintf(NULL, 0, "%s_registry_t", map_name);
+        if (needed < 0) {
+            cxgn_error_set(err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
+            return false;
+        }
+        map_registry_type = (char*)malloc((size_t)needed + 1u);
+        if (!map_registry_type) {
+            cxgn_error_set(err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
+            return false;
+        }
+        snprintf(map_registry_type, (size_t)needed + 1u, "%s_registry_t", map_name);
+    }
 
     char** ordered_paths = (char**)calloc(batch->count, sizeof(char*));
     if (!ordered_paths) {
@@ -443,16 +465,45 @@ bool cxgn_batch_generate_detailed(cxgn_batch* batch,
             continue;
         }
 
-        entry->identifier = key_to_ident(entry->key);
-        if (!entry->identifier) {
-            cxgn_error_set(&entry_err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
-            result->failure_count++;
-            batch_entry_set_error(entry, &entry_err);
-            if (!continue_on_error) {
-                if (!batch_error_clone(err, &entry->error)) goto fail;
-                goto fail;
+        {
+            char* base_identifier = key_to_ident(entry->key);
+            int needed;
+            if (!base_identifier) {
+                cxgn_error_set(&entry_err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
+                result->failure_count++;
+                batch_entry_set_error(entry, &entry_err);
+                if (!continue_on_error) {
+                    if (!batch_error_clone(err, &entry->error)) goto fail;
+                    goto fail;
+                }
+                continue;
             }
-            continue;
+            needed = snprintf(NULL, 0, "%s_%s", map_name, base_identifier);
+            if (needed < 0) {
+                free(base_identifier);
+                cxgn_error_set(&entry_err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
+                result->failure_count++;
+                batch_entry_set_error(entry, &entry_err);
+                if (!continue_on_error) {
+                    if (!batch_error_clone(err, &entry->error)) goto fail;
+                    goto fail;
+                }
+                continue;
+            }
+            entry->identifier = (char*)malloc((size_t)needed + 1u);
+            if (!entry->identifier) {
+                free(base_identifier);
+                cxgn_error_set(&entry_err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
+                result->failure_count++;
+                batch_entry_set_error(entry, &entry_err);
+                if (!continue_on_error) {
+                    if (!batch_error_clone(err, &entry->error)) goto fail;
+                    goto fail;
+                }
+                continue;
+            }
+            snprintf(entry->identifier, (size_t)needed + 1u, "%s_%s", map_name, base_identifier);
+            free(base_identifier);
         }
 
         for (size_t j = 0; j < i; j++) {
@@ -535,7 +586,6 @@ next_entry:
     if (saved_helpers) {
         bout_appendf(result->combined_output, "#include <%s>\n\n", saved_helpers);
     }
-
     for (size_t i = 0; i < result->entry_count; i++) {
         const cxgn_batch_entry_result* entry = &result->entries[i];
         if (!entry->output) continue;
@@ -545,27 +595,36 @@ next_entry:
         bout_append(result->combined_output, "\n");
     }
 
-    bout_append(result->combined_output, "\n/* == Config map == */\n");
+    bout_append(result->combined_output, "\n/* == Config registry == */\n");
     bout_appendf(result->combined_output, "typedef struct {\n");
     bout_appendf(result->combined_output, "    const char* key;\n");
     bout_appendf(result->combined_output, "    const %s* config;\n", struct_name);
     bout_appendf(result->combined_output, "} %s;\n\n", map_type);
-    bout_appendf(result->combined_output, "static const %s %s[] = {\n", map_type, map_name);
+    bout_appendf(result->combined_output, "typedef struct %s {\n", map_registry_type);
+    bout_appendf(result->combined_output, "    const %s* entries;\n", map_type);
+    bout_appendf(result->combined_output, "    size_t count;\n");
+    bout_appendf(result->combined_output, "} %s;\n\n", map_registry_type);
+
+    bout_appendf(result->combined_output, "static const %s _%s_entries[] = {\n", map_type, map_name);
     for (size_t i = 0; i < result->entry_count; i++) {
         const cxgn_batch_entry_result* entry = &result->entries[i];
         if (!entry->output) continue;
         bout_appendf(result->combined_output, "    {\"%s\", &%s_config},\n",
                      entry->key, entry->identifier);
     }
+    bout_append(result->combined_output, "};\n\n");
+    bout_appendf(result->combined_output, "static const %s %s = {\n", map_registry_type, map_name);
+    bout_appendf(result->combined_output, "    .entries = _%s_entries,\n", map_name);
+    bout_appendf(result->combined_output, "    .count = %zu,\n", result->success_count);
     bout_append(result->combined_output, "};\n");
-    bout_appendf(result->combined_output, "static const size_t %s_count = %zu;\n",
-                 map_name, result->success_count);
 
+    free(map_registry_type);
     free(ordered_paths);
     return true;
 
 fail:
     batch->gen->helpers_header = saved_helpers;
+    free(map_registry_type);
     free(ordered_paths);
     if (err && err->code == CXGN_OK) {
         cxgn_error_set(err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");

@@ -12,7 +12,7 @@ static const char* const builtin_types[] = {
     "unsigned long long", "short", "unsigned short", "char", "unsigned char",
     "signed char", "float", "double", "long double", "bool", "size_t",
     "int8_t", "int16_t", "int32_t", "int64_t", "uint8_t", "uint16_t",
-    "uint32_t", "uint64_t", "const char*", NULL
+    "uint32_t", "uint64_t", "const char*", "std::string_view", "string_view", NULL
 };
 
 static const char* skip_whitespace(const char* s) {
@@ -45,8 +45,6 @@ static void field_info_free(cxgn_field_info* field) {
     free(field->default_value);
     free(field->array_elem_type);
     free(field->optional_value_type);
-    for (size_t i = 0; i < field->variant_type_count; i++) free(field->variant_types[i]);
-    free(field->variant_types);
 }
 
 static void struct_info_free(cxgn_struct_info* info) {
@@ -61,6 +59,14 @@ static void alias_free(cxgn_type_alias* alias) {
     if (!alias) return;
     free(alias->name);
     free(alias->value_type);
+}
+
+static void enum_info_free(struct cxgn_enum_info* info) {
+    if (!info) return;
+    free(info->name);
+    free(info->defined_in);
+    for (size_t i = 0; i < info->value_count; i++) free(info->values[i].name);
+    free(info->values);
 }
 
 static cxgn_struct_info* parser_add_struct(cxgn_struct_parser* parser, const char* name, const char* file) {
@@ -154,6 +160,48 @@ static bool parser_add_alias(cxgn_struct_parser* parser, const char* name,
         alias_free(alias);
         memset(alias, 0, sizeof(*alias));
         parser->alias_count--;
+        return false;
+    }
+    return true;
+}
+
+static struct cxgn_enum_info* parser_add_enum(cxgn_struct_parser* parser, const char* name, const char* file) {
+    if (parser->enum_count >= parser->enum_capacity) {
+        size_t new_cap = parser->enum_capacity ? parser->enum_capacity * 2 : 8;
+        struct cxgn_enum_info* next = (struct cxgn_enum_info*)realloc(parser->enums, new_cap * sizeof(*next));
+        if (!next) return NULL;
+        parser->enums = next;
+        parser->enum_capacity = new_cap;
+    }
+
+    struct cxgn_enum_info* info = &parser->enums[parser->enum_count++];
+    memset(info, 0, sizeof(*info));
+    info->name = cxgn_strdup(name);
+    info->defined_in = cxgn_strdup(file);
+    if (!info->name || !info->defined_in) {
+        enum_info_free(info);
+        memset(info, 0, sizeof(*info));
+        parser->enum_count--;
+        return NULL;
+    }
+    return info;
+}
+
+static bool enum_add_value(struct cxgn_enum_info* info, const char* name) {
+    if (info->value_count >= info->value_capacity) {
+        size_t new_cap = info->value_capacity ? info->value_capacity * 2 : 8;
+        cxgn_enum_value_info* next =
+            (cxgn_enum_value_info*)realloc(info->values, new_cap * sizeof(*next));
+        if (!next) return false;
+        info->values = next;
+        info->value_capacity = new_cap;
+    }
+
+    cxgn_enum_value_info* value = &info->values[info->value_count++];
+    memset(value, 0, sizeof(*value));
+    value->name = cxgn_strdup(name);
+    if (!value->name) {
+        info->value_count--;
         return false;
     }
     return true;
@@ -398,6 +446,41 @@ static bool parse_multi_field_line(const cxgn_struct_parser* parser, const char*
     return true;
 }
 
+static bool register_struct_wrapper_alias(cxgn_struct_parser* parser,
+                                          const cxgn_struct_info* info) {
+    const cxgn_field_info* first;
+    const cxgn_field_info* second;
+    const char* pointee_end;
+    size_t pointee_len;
+    char* value_type;
+
+    if (!parser || !info || !info->name || info->field_count != 2) return true;
+
+    first = &info->fields[0];
+    second = &info->fields[1];
+
+    if (strcmp(first->name, "data") == 0 && strcmp(second->name, "count") == 0 &&
+        second->type && strcmp(second->type, "size_t") == 0 &&
+        first->type && strchr(first->type, '*') != NULL) {
+        pointee_end = strrchr(first->type, '*');
+        if (!pointee_end) return true;
+        pointee_len = (size_t)(pointee_end - first->type);
+        value_type = cxgn_strndup(first->type, pointee_len);
+        if (!value_type) return false;
+        trim_trailing_whitespace(value_type);
+        const bool ok = parser_add_alias(parser, info->name, value_type, CXGN_ALIAS_ARRAY);
+        free(value_type);
+        return ok;
+    }
+
+    if (strcmp(first->name, "value") == 0 && strcmp(second->name, "has_value") == 0 &&
+        second->type && strcmp(second->type, "bool") == 0) {
+        return parser_add_alias(parser, info->name, first->type, CXGN_ALIAS_OPTIONAL);
+    }
+
+    return true;
+}
+
 static bool parse_struct(cxgn_struct_parser* parser, const char* content, const char* file,
                          size_t* pos, cxgn_error* err) {
     const char* p = content + *pos;
@@ -504,6 +587,126 @@ static bool parse_struct(cxgn_struct_parser* parser, const char* content, const 
         line = (*line_end == '\n') ? line_end + 1 : line_end;
     }
 
+    if (has_typedef && !register_struct_wrapper_alias(parser, info)) {
+        cxgn_error_set(err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
+        return false;
+    }
+
+    *pos = (size_t)(after - content);
+    return true;
+}
+
+static bool parse_enum(cxgn_struct_parser* parser, const char* content, const char* file,
+                       size_t* pos, cxgn_error* err) {
+    const char* p = content + *pos;
+    bool has_typedef = false;
+    char* tag_name = NULL;
+    char* enum_name = NULL;
+    struct cxgn_enum_info* info = NULL;
+
+    if (starts_with(p, "typedef")) {
+        has_typedef = true;
+        p = skip_whitespace(p + strlen("typedef"));
+    }
+    if (!starts_with(p, "enum")) return false;
+    p = skip_whitespace(p + strlen("enum"));
+
+    size_t tag_len = extract_identifier(p);
+    if (tag_len > 0) {
+        tag_name = cxgn_strndup(p, tag_len);
+        p += tag_len;
+        p = skip_whitespace(p);
+    }
+
+    if (*p != '{') {
+        free(tag_name);
+        return false;
+    }
+    p++;
+
+    const char* body_start = p;
+    int brace_depth = 1;
+    while (*p && brace_depth > 0) {
+        if (*p == '{') brace_depth++;
+        else if (*p == '}') brace_depth--;
+        p++;
+    }
+    if (brace_depth != 0) {
+        free(tag_name);
+        cxgn_error_set(err, CXGN_ERR_PARSE_ERROR, "Unterminated enum definition");
+        return false;
+    }
+
+    const char* close_brace = p - 1;
+    const char* after = skip_whitespace(p);
+    if (has_typedef) {
+        size_t alias_len = extract_identifier(after);
+        if (alias_len == 0) {
+            free(tag_name);
+            cxgn_error_set(err, CXGN_ERR_PARSE_ERROR, "Expected typedef enum name");
+            return false;
+        }
+        enum_name = cxgn_strndup(after, alias_len);
+        after = skip_whitespace(after + alias_len);
+    } else if (tag_name) {
+        enum_name = cxgn_strdup(tag_name);
+    }
+
+    free(tag_name);
+    if (!enum_name) {
+        cxgn_error_set(err, CXGN_ERR_PARSE_ERROR, "Expected enum name");
+        return false;
+    }
+
+    if (*after != ';') {
+        while (*after && *after != ';') after++;
+    }
+    if (*after == ';') after++;
+
+    info = parser_add_enum(parser, enum_name, file);
+    free(enum_name);
+    if (!info) {
+        cxgn_error_set(err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
+        return false;
+    }
+
+    const char* cur = body_start;
+    while (cur < close_brace) {
+        while (cur < close_brace && (isspace((unsigned char)*cur) || *cur == ',')) cur++;
+        if (cur >= close_brace) break;
+
+        if (cur + 1 < close_brace && cur[0] == '/' && cur[1] == '/') {
+            while (cur < close_brace && *cur != '\n') cur++;
+            continue;
+        }
+        if (cur + 1 < close_brace && cur[0] == '/' && cur[1] == '*') {
+            cur += 2;
+            while (cur + 1 < close_brace && !(cur[0] == '*' && cur[1] == '/')) cur++;
+            if (cur + 1 < close_brace) cur += 2;
+            continue;
+        }
+
+        size_t name_len = extract_identifier(cur);
+        if (name_len == 0) {
+            cur++;
+            continue;
+        }
+        char* value_name = cxgn_strndup(cur, name_len);
+        if (!value_name || !enum_add_value(info, value_name)) {
+            free(value_name);
+            cxgn_error_set(err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
+            return false;
+        }
+        free(value_name);
+        cur += name_len;
+
+        while (cur < close_brace && isspace((unsigned char)*cur)) cur++;
+        if (cur < close_brace && *cur == '=') {
+            cur++;
+            while (cur < close_brace && *cur != ',') cur++;
+        }
+    }
+
     *pos = (size_t)(after - content);
     return true;
 }
@@ -544,12 +747,14 @@ cxgn_struct_parser* cxgn_struct_parser_new(const cxgn_string_utils* utils) {
     parser->ref_count = 1;
     parser->utils = cxgn_string_utils_retain((cxgn_string_utils*)utils);
     parser->struct_capacity = 8;
+    parser->enum_capacity = 8;
     parser->parsed_file_capacity = 8;
     parser->alias_capacity = 8;
     parser->structs = (cxgn_struct_info*)calloc(parser->struct_capacity, sizeof(*parser->structs));
+    parser->enums = (struct cxgn_enum_info*)calloc(parser->enum_capacity, sizeof(*parser->enums));
     parser->parsed_files = (char**)calloc(parser->parsed_file_capacity, sizeof(*parser->parsed_files));
     parser->aliases = (cxgn_type_alias*)calloc(parser->alias_capacity, sizeof(*parser->aliases));
-    if (!parser->structs || !parser->parsed_files || !parser->aliases) {
+    if (!parser->structs || !parser->enums || !parser->parsed_files || !parser->aliases) {
         cxgn_struct_parser_free(parser);
         return NULL;
     }
@@ -568,13 +773,76 @@ void cxgn_struct_parser_free(cxgn_struct_parser* parser) {
         return;
     }
     for (size_t i = 0; i < parser->struct_count; i++) struct_info_free(&parser->structs[i]);
+    for (size_t i = 0; i < parser->enum_count; i++) enum_info_free(&parser->enums[i]);
     for (size_t i = 0; i < parser->parsed_file_count; i++) free(parser->parsed_files[i]);
     for (size_t i = 0; i < parser->alias_count; i++) alias_free(&parser->aliases[i]);
     free(parser->structs);
+    free(parser->enums);
     free(parser->parsed_files);
     free(parser->aliases);
     cxgn_string_utils_free(parser->utils);
     free(parser);
+}
+
+static bool parse_header_content(cxgn_struct_parser* parser,
+                                 const char* source_name,
+                                 char* content,
+                                 size_t read,
+                                 cxgn_error* err) {
+    char* base_dir = NULL;
+    size_t pos = 0;
+
+    if (!parser || !source_name || !content) {
+        cxgn_error_set(err, CXGN_ERR_PARSE_ERROR, "Invalid arguments");
+        return false;
+    }
+    if (parser_was_file_parsed(parser, source_name)) return true;
+    if (!parser_mark_file_parsed(parser, source_name)) {
+        cxgn_error_set(err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
+        return false;
+    }
+
+    base_dir = cxgn_get_directory(source_name);
+    while (pos < read) {
+        const char* p = skip_whitespace(content + pos);
+        pos = (size_t)(p - content);
+        if (pos >= read) break;
+
+        const char* line_end = strchr(p, '\n');
+        if (!line_end) line_end = content + read;
+        size_t len = (size_t)(line_end - p);
+        char* line = cxgn_strndup(p, len);
+        if (!line) {
+            free(base_dir);
+            free(content);
+            cxgn_error_set(err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
+            return false;
+        }
+
+        if (*p == '#' && starts_with(p, "#include")) {
+            parse_include(parser, content, base_dir, &pos, err);
+        } else if (parse_macro_alias(parser, line) || parse_typedef_alias(parser, line) || parse_scalar_typedef(parser, line)) {
+            pos = (size_t)((*line_end == '\n') ? (line_end + 1 - content) : (line_end - content));
+        } else if (starts_with(p, "typedef enum") || starts_with(p, "enum ")) {
+            if (!parse_enum(parser, content, source_name, &pos, err)) {
+                free(line);
+                free(base_dir);
+                return false;
+            }
+        } else if (starts_with(p, "typedef struct") || starts_with(p, "struct ")) {
+            if (!parse_struct(parser, content, source_name, &pos, err)) {
+                free(line);
+                free(base_dir);
+                return false;
+            }
+        } else {
+            pos = (size_t)((*line_end == '\n') ? (line_end + 1 - content) : (line_end - content));
+        }
+        free(line);
+    }
+
+    free(base_dir);
+    return true;
 }
 
 bool cxgn_struct_parser_parse_file(cxgn_struct_parser* parser, const char* header_path, cxgn_error* err) {
@@ -583,7 +851,6 @@ bool cxgn_struct_parser_parse_file(cxgn_struct_parser* parser, const char* heade
         cxgn_error_set(err, CXGN_ERR_PARSE_ERROR, "Invalid arguments");
         return false;
     }
-    if (parser_was_file_parsed(parser, header_path)) return true;
 
     FILE* f = fopen(header_path, "r");
     if (!f) {
@@ -610,50 +877,34 @@ bool cxgn_struct_parser_parse_file(cxgn_struct_parser* parser, const char* heade
     fclose(f);
     content[read] = '\0';
 
-    if (!parser_mark_file_parsed(parser, header_path)) {
-        free(content);
+    const bool ok = parse_header_content(parser, header_path, content, read, err);
+    free(content);
+    return ok;
+}
+
+bool cxgn_struct_parser_parse_text(cxgn_struct_parser* parser,
+                                   const char* header_text,
+                                   const char* source_name,
+                                   cxgn_error* err) {
+    size_t len;
+    char* owned = NULL;
+
+    cxgn_error_init(err);
+    if (!parser || !header_text || !source_name) {
+        cxgn_error_set(err, CXGN_ERR_PARSE_ERROR, "Invalid arguments");
+        return false;
+    }
+
+    len = strlen(header_text);
+    owned = cxgn_strdup(header_text);
+    if (!owned) {
         cxgn_error_set(err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
         return false;
     }
 
-    char* base_dir = cxgn_get_directory(header_path);
-    size_t pos = 0;
-    while (pos < read) {
-        const char* p = skip_whitespace(content + pos);
-        pos = (size_t)(p - content);
-        if (pos >= read) break;
-
-        const char* line_end = strchr(p, '\n');
-        if (!line_end) line_end = content + read;
-        size_t len = (size_t)(line_end - p);
-        char* line = cxgn_strndup(p, len);
-        if (!line) {
-            free(base_dir);
-            free(content);
-            cxgn_error_set(err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
-            return false;
-        }
-
-        if (*p == '#' && starts_with(p, "#include")) {
-            parse_include(parser, content, base_dir, &pos, err);
-        } else if (parse_macro_alias(parser, line) || parse_typedef_alias(parser, line) || parse_scalar_typedef(parser, line)) {
-            pos = (size_t)((*line_end == '\n') ? (line_end + 1 - content) : (line_end - content));
-        } else if (starts_with(p, "typedef struct") || starts_with(p, "struct ")) {
-            if (!parse_struct(parser, content, header_path, &pos, err)) {
-                free(line);
-                free(base_dir);
-                free(content);
-                return false;
-            }
-        } else {
-            pos = (size_t)((*line_end == '\n') ? (line_end + 1 - content) : (line_end - content));
-        }
-        free(line);
-    }
-
-    free(base_dir);
-    free(content);
-    return true;
+    const bool ok = parse_header_content(parser, source_name, owned, len, err);
+    free(owned);
+    return ok;
 }
 
 size_t cxgn_struct_parser_get_struct_count(const cxgn_struct_parser* parser) {
@@ -674,8 +925,27 @@ const cxgn_struct_info* cxgn_struct_parser_find_struct(const cxgn_struct_parser*
 }
 
 bool cxgn_struct_parser_is_builtin_type(const cxgn_struct_parser* parser, const char* type) {
-    (void)parser;
     if (!type) return false;
+    if (parser) {
+        char* unqualified = NULL;
+        const char* match_type = type;
+        for (size_t i = 0; i < parser->enum_count; i++) {
+            if (strcmp(type, parser->enums[i].name) == 0) return true;
+        }
+        unqualified = cxgn_strdup(type);
+        if (unqualified) {
+            trim_trailing_whitespace(unqualified);
+            while (starts_with(unqualified, "const ")) memmove(unqualified, unqualified + 6, strlen(unqualified + 6) + 1);
+            match_type = unqualified;
+            for (size_t i = 0; i < parser->enum_count; i++) {
+                if (strcmp(match_type, parser->enums[i].name) == 0) {
+                    free(unqualified);
+                    return true;
+                }
+            }
+            free(unqualified);
+        }
+    }
     for (size_t i = 0; builtin_types[i]; i++) {
         if (strcmp(type, builtin_types[i]) == 0) return true;
     }
@@ -737,17 +1007,4 @@ bool cxgn_field_is_optional(const cxgn_field_info* field) {
 
 const char* cxgn_field_get_optional_value_type(const cxgn_field_info* field) {
     return field ? field->optional_value_type : NULL;
-}
-
-bool cxgn_field_is_variant(const cxgn_field_info* field) {
-    return field ? field->is_variant : false;
-}
-
-size_t cxgn_field_get_variant_type_count(const cxgn_field_info* field) {
-    return field ? field->variant_type_count : 0;
-}
-
-const char* cxgn_field_get_variant_type(const cxgn_field_info* field, size_t index) {
-    if (!field || index >= field->variant_type_count) return NULL;
-    return field->variant_types[index];
 }

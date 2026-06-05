@@ -25,8 +25,8 @@ typedef struct {
     const char* map_root;
 
     /**
-     * C identifier for the emitted map array variable.
-     * NULL: defaults to "cxgn_config_map".
+     * C identifier for the emitted registry variable.
+     * NULL: defaults to "config".
      */
     const char* map_name;
 
@@ -139,7 +139,7 @@ bool cxgn_batch_add_glob(cxgn_batch* batch, const char* pattern, cxgn_error* err
  * @brief Generate a combined output from all queued files.
  *
  * Each YAML file is generated with a unique symbol prefix to avoid name
- * collisions. A keyed map array is appended at the end of the output.
+ * collisions. A keyed map registry is appended at the end of the output.
  * The same schema header is used for all entries.
  *
  * @param batch       Batch instance (must contain at least one file)

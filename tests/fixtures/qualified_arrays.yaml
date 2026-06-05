@@ -1,0 +1,8 @@
+items:
+  - key: alpha
+    value: 1.5
+  - key: beta
+    value: 2.5
+names:
+  - foo
+  - bar

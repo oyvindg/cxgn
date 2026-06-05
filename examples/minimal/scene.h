@@ -7,11 +7,19 @@ typedef struct Point2d {
     float y;
 } Point2d;
 
-CXGN_ARRAY_TYPEDEF(Point2d, cxgn_array_Point2d_t)
-CXGN_OPTIONAL_TYPEDEF(const char*, cxgn_optional_const_char_ptr_t)
+typedef struct SpawnArea {
+    Point2d center;
+    float radius;
+} SpawnArea;
+
+CXGN_ARRAY_TYPEDEF(Point2d, Point2dArray)
+CXGN_OPTIONAL_TYPEDEF(Point2d, OptionalPoint2d)
 
 typedef struct SceneConfig {
     const char* name;
-    cxgn_array_Point2d_t waypoints;
-    cxgn_optional_const_char_ptr_t skybox;
+    Point2dArray waypoints;
+    const char* skybox;
+    OptionalPoint2d previewPoint;
+    const Point2d* pointTarget;
+    const SpawnArea* spawnArea;
 } SceneConfig;

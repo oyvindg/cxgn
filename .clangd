@@ -1,6 +1,11 @@
 CompileFlags:
   CompilationDatabase: build
   Add:
-    - -xc-header
     - -std=c11
     - -Iinclude
+---
+If:
+  PathMatch: .*\.h
+CompileFlags:
+  Add:
+    - -xc-header

@@ -69,6 +69,47 @@ struct cxgn_path {
 };
 
 /* ═══════════════════════════════════════════════════════════════════════════
+ * Normalized Document Model
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+typedef struct {
+    char* key;
+    cxgn_node* value;
+    size_t line;
+    size_t column;
+} cxgn_object_entry;
+
+struct cxgn_node {
+    cxgn_node_type type;
+    size_t line;
+    size_t column;
+    char* raw_scalar_text;
+    size_t raw_scalar_len;
+    union {
+        bool bool_value;
+        long long int_value;
+        double float_value;
+        struct {
+            char* data;
+            size_t len;
+        } string;
+        struct {
+            cxgn_node** items;
+            size_t count;
+        } array;
+        struct {
+            cxgn_object_entry* entries;
+            size_t count;
+        } object;
+    } as;
+};
+
+struct cxgn_document {
+    cxgn_node* root;
+    char* source_name;
+};
+
+/* ═══════════════════════════════════════════════════════════════════════════
  * Field Info
  * ═══════════════════════════════════════════════════════════════════════════ */
 
@@ -83,9 +124,6 @@ struct cxgn_field_info {
     char* array_elem_type;    /**< Element type if array (owned) */
     bool is_optional;         /**< true if cxgn optional typedef */
     char* optional_value_type; /**< Value type if optional (owned) */
-    bool is_variant;             /**< Reserved for future tagged unions */
-    char** variant_types;      /**< Owned array of type strings */
-    size_t variant_type_count; /**< Number of variant types */
 };
 
 typedef enum {
@@ -99,6 +137,18 @@ typedef struct {
     char* value_type;
     cxgn_type_alias_kind kind;
 } cxgn_type_alias;
+
+typedef struct {
+    char* name;
+} cxgn_enum_value_info;
+
+struct cxgn_enum_info {
+    char* name;               /**< Enum typedef/name (owned) */
+    char* defined_in;         /**< File path (owned) */
+    cxgn_enum_value_info* values;
+    size_t value_count;
+    size_t value_capacity;
+};
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * Struct Info
@@ -128,6 +178,9 @@ struct cxgn_struct_parser {
     cxgn_struct_info* structs;        /**< Array of parsed structs (owned) */
     size_t struct_count;
     size_t struct_capacity;
+    struct cxgn_enum_info* enums;     /**< Parsed enums (owned) */
+    size_t enum_count;
+    size_t enum_capacity;
     char** parsed_files;            /**< Already parsed files (owned) */
     size_t parsed_file_count;
     size_t parsed_file_capacity;
@@ -151,6 +204,7 @@ struct cxgn_generator {
     bool has_expr_handler;
     cxgn_validation_options validation;
     char* helpers_header;
+    char* root_struct_name;          /**< Explicit root struct override (owned, NULL = last parsed) */
     char* symbol_prefix;             /**< Prefix applied to emitted variable names (owned, NULL = none) */
     cxgn_cpp_std cpp_std;            /**< Legacy compatibility field */
 };
@@ -235,6 +289,37 @@ char* cxgn_path_relative_to_file(const char* from_path, const char* target_path)
 
 const cxgn_type_alias* cxgn_struct_parser_find_alias(const cxgn_struct_parser* parser,
                                                      const char* name);
+bool cxgn_struct_parser_parse_text(cxgn_struct_parser* parser,
+                                   const char* header_text,
+                                   const char* source_name,
+                                   cxgn_error* err);
+
+cxgn_document* cxgn_document_new(const char* source_name);
+void cxgn_document_free(cxgn_document* doc);
+bool cxgn_document_set_root(cxgn_document* doc, cxgn_node* root);
+
+cxgn_node* cxgn_node_new(cxgn_node_type type);
+cxgn_node* cxgn_node_new_null(void);
+cxgn_node* cxgn_node_new_bool(bool value);
+cxgn_node* cxgn_node_new_integer(long long value);
+cxgn_node* cxgn_node_new_float(double value);
+cxgn_node* cxgn_node_new_string(const char* data, size_t len);
+cxgn_node* cxgn_node_new_array(void);
+cxgn_node* cxgn_node_new_object(void);
+void cxgn_node_free(cxgn_node* node);
+void cxgn_node_set_location(cxgn_node* node, size_t line, size_t column);
+bool cxgn_node_set_raw_scalar_text(cxgn_node* node, const char* text, size_t len);
+bool cxgn_node_array_append(cxgn_node* array_node, cxgn_node* item);
+bool cxgn_node_object_append(cxgn_node* object_node,
+                             const char* key,
+                             cxgn_node* value,
+                             size_t line,
+                             size_t column);
+
+cxgn_document* cxgn_document_from_yaml_file(const char* yaml_path, cxgn_error* err);
+cxgn_document* cxgn_document_from_yaml_text(const char* yaml_text,
+                                            const char* source_name,
+                                            cxgn_error* err);
 
 /**
  * @brief Set the symbol prefix used when emitting variable names.
@@ -305,6 +390,7 @@ static inline void cxgn_error_init(cxgn_error* err) {
  */
 static inline void cxgn_error_set(cxgn_error* err, cxgn_error_code code, const char* message) {
     if (err) {
+        cxgn_error_clear(err);
         err->code = code;
         err->message = message;
         err->needs_free = false;

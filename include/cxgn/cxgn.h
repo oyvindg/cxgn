@@ -22,7 +22,7 @@ extern "C" {
 
 #define CXGN_VERSION_MAJOR 1
 #define CXGN_VERSION_MINOR 0
-#define CXGN_VERSION_PATCH 0
+#define CXGN_VERSION_PATCH 2
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * Opaque handles
@@ -35,6 +35,18 @@ typedef struct cxgn_generator cxgn_generator;
 typedef struct cxgn_path cxgn_path;
 typedef struct cxgn_string_utils cxgn_string_utils;
 typedef struct cxgn_output cxgn_output;
+typedef struct cxgn_document cxgn_document;
+typedef struct cxgn_node cxgn_node;
+
+typedef enum {
+    CXGN_NODE_NULL = 0,
+    CXGN_NODE_BOOL,
+    CXGN_NODE_INTEGER,
+    CXGN_NODE_FLOAT,
+    CXGN_NODE_STRING,
+    CXGN_NODE_ARRAY,
+    CXGN_NODE_OBJECT
+} cxgn_node_type;
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * Error handling
@@ -53,7 +65,8 @@ typedef enum {
     CXGN_ERR_EXPRESSION_ERROR,
     CXGN_ERR_DUPLICATE_KEY,
     CXGN_ERR_UNKNOWN_FIELD,
-    CXGN_ERR_FEATURE_DISABLED
+    CXGN_ERR_FEATURE_DISABLED,
+    CXGN_ERR_UNSUPPORTED_TYPE
 } cxgn_error_code;
 
 typedef struct cxgn_error {
@@ -87,6 +100,60 @@ const char* cxgn_error_string(cxgn_error_code code);
  * @return true when libyaml-backed generation APIs are enabled in this build
  */
 bool cxgn_has_yaml(void);
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * YAML Document API
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+cxgn_document* cxgn_document_from_yaml_file(const char* yaml_path, cxgn_error* err);
+cxgn_document* cxgn_document_from_yaml_text(const char* yaml_text,
+                                            const char* source_name,
+                                            cxgn_error* err);
+cxgn_document* cxgn_document_new(const char* source_name);
+bool cxgn_document_set_root(cxgn_document* doc, cxgn_node* root);
+void cxgn_document_free(cxgn_document* doc);
+const cxgn_node* cxgn_document_get_root(const cxgn_document* doc);
+const char* cxgn_document_get_source_name(const cxgn_document* doc);
+char* cxgn_document_to_yaml_text(const cxgn_document* doc);
+
+cxgn_node_type cxgn_node_get_type(const cxgn_node* node);
+size_t cxgn_node_get_line(const cxgn_node* node);
+size_t cxgn_node_get_column(const cxgn_node* node);
+const char* cxgn_node_get_raw_scalar_text(const cxgn_node* node, size_t* len);
+
+cxgn_node* cxgn_node_new_null(void);
+cxgn_node* cxgn_node_new_bool(bool value);
+cxgn_node* cxgn_node_new_integer(long long value);
+cxgn_node* cxgn_node_new_float(double value);
+cxgn_node* cxgn_node_new_string(const char* data, size_t len);
+cxgn_node* cxgn_node_new_array(void);
+cxgn_node* cxgn_node_new_object(void);
+void cxgn_node_free(cxgn_node* node);
+void cxgn_node_set_location(cxgn_node* node, size_t line, size_t column);
+bool cxgn_node_set_raw_scalar_text(cxgn_node* node, const char* text, size_t len);
+bool cxgn_node_array_append(cxgn_node* array_node, cxgn_node* item);
+bool cxgn_node_object_append(cxgn_node* object_node,
+                             const char* key,
+                             cxgn_node* value,
+                             size_t line,
+                             size_t column);
+
+bool cxgn_node_get_bool(const cxgn_node* node, bool* out_value);
+bool cxgn_node_get_integer(const cxgn_node* node, long long* out_value);
+bool cxgn_node_get_float(const cxgn_node* node, double* out_value);
+const char* cxgn_node_get_string(const cxgn_node* node, size_t* len);
+
+size_t cxgn_node_array_count(const cxgn_node* node);
+const cxgn_node* cxgn_node_array_at(const cxgn_node* node, size_t index);
+
+size_t cxgn_node_object_count(const cxgn_node* node);
+const char* cxgn_node_object_key_at(const cxgn_node* node, size_t index);
+const cxgn_node* cxgn_node_object_value_at(const cxgn_node* node, size_t index);
+const cxgn_node* cxgn_node_object_find(const cxgn_node* node, const char* key, size_t ordinal);
+
+cxgn_document* cxgn_document_clone(const cxgn_document* doc);
+cxgn_document* cxgn_document_merge(const cxgn_document* base_doc, const cxgn_document* overlay_doc);
+cxgn_document* cxgn_document_merge_many(const cxgn_document* const* docs, size_t count);
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * String Utils API
@@ -239,28 +306,6 @@ bool cxgn_field_is_optional(const cxgn_field_info* field);
  */
 const char* cxgn_field_get_optional_value_type(const cxgn_field_info* field);
 
-/**
- * @brief Check if field is a tagged-union field.
- * @param field Field info
- * @return true if variant metadata is present
- */
-bool cxgn_field_is_variant(const cxgn_field_info* field);
-
-/**
- * @brief Get number of types in a tagged union.
- * @param field Field info
- * @return Type count, or 0 if not a tagged union
- */
-size_t cxgn_field_get_variant_type_count(const cxgn_field_info* field);
-
-/**
- * @brief Get a tagged-union type by index.
- * @param field Field info
- * @param index Type index (0-based)
- * @return Type string or NULL if out of range
- */
-const char* cxgn_field_get_variant_type(const cxgn_field_info* field, size_t index);
-
 /* ═══════════════════════════════════════════════════════════════════════════
  * Struct Info API
  * ═══════════════════════════════════════════════════════════════════════════ */
@@ -337,6 +382,19 @@ cxgn_struct_parser* cxgn_struct_parser_retain(cxgn_struct_parser* parser);
  */
 bool cxgn_struct_parser_parse_file(cxgn_struct_parser* parser,
                                   const char* header_path, cxgn_error* err);
+
+/**
+ * @brief Parse header text from memory and extract C struct definitions.
+ * @param parser Parser instance
+ * @param header_text Header source text
+ * @param source_name Virtual/source path used for diagnostics and relative includes
+ * @param err Error output (can be NULL)
+ * @return true on success, false on error
+ */
+bool cxgn_struct_parser_parse_text(cxgn_struct_parser* parser,
+                                   const char* header_text,
+                                   const char* source_name,
+                                   cxgn_error* err);
 
 /**
  * @brief Get number of parsed structs.
@@ -465,7 +523,7 @@ typedef struct {
  * Default policy:
  * - unknown fields: warning
  * - duplicate keys: error
- * - missing required fields: warning
+ * - missing required fields: error
  * - strict_mode: false
  * - diagnostic callback: NULL
  *
@@ -491,7 +549,6 @@ void cxgn_validation_options_init(cxgn_validation_options* options);
 typedef struct {
     const char* array_wrapper;
     const char* optional_wrapper;
-    const char* variant_wrapper;
     const char* array_ctor_fmt;
     const char* optional_empty_fmt;
     const char* optional_value_prefix_fmt;
@@ -568,7 +625,7 @@ void cxgn_generator_set_validation_options(cxgn_generator* gen,
 /**
  * @brief Convenience setter for strict validation mode.
  * @param gen Generator instance
- * @param strict When true, unknown fields, duplicate keys, and missing fields become errors
+ * @param strict When true, validation warnings such as unknown fields become errors
  */
 void cxgn_generator_set_strict_mode(cxgn_generator* gen, bool strict);
 
@@ -589,6 +646,13 @@ void cxgn_generator_set_cpp_std(cxgn_generator* gen, cxgn_cpp_std std);
 void cxgn_generator_set_helpers_header(cxgn_generator* gen, const char* helpers_header);
 
 /**
+ * @brief Override which parsed struct is used as the generation root.
+ * @param gen Generator instance
+ * @param root_struct_name Struct typedef/tag name, or NULL to use the last parsed struct
+ */
+void cxgn_generator_set_root_struct(cxgn_generator* gen, const char* root_struct_name);
+
+/**
  * @brief Generate C code from YAML config.
  * @param gen Generator instance
  * @param yaml_path Path to YAML file
@@ -598,6 +662,21 @@ void cxgn_generator_set_helpers_header(cxgn_generator* gen, const char* helpers_
  */
 cxgn_output* cxgn_generate(cxgn_generator* gen, const char* yaml_path,
                         const char* header_path, cxgn_error* err);
+
+/**
+ * @brief Generate C code directly from an in-memory YAML document tree.
+ * @param gen Generator instance
+ * @param doc Parsed/constructed document tree
+ * @param yaml_virtual_path Virtual/source path used in diagnostics
+ * @param header_path Path to header file (for output include)
+ * @param err Error output (can be NULL)
+ * @return Output handle on success, NULL on error
+ */
+cxgn_output* cxgn_generate_from_document(cxgn_generator* gen,
+                                         const cxgn_document* doc,
+                                         const char* yaml_virtual_path,
+                                         const char* header_path,
+                                         cxgn_error* err);
 
 /**
  * @brief Generate C code from YAML text in memory.
@@ -653,8 +732,10 @@ cxgn_output* cxgn_output_retain(cxgn_output* output);
 typedef struct {
     const char* yaml_path;
     const char* header_path;
+    const char* header_include;
     const char* output_path;
     const char* helpers_header;
+    const char* root_struct;
     bool strict;
     bool verbose;
     cxgn_cpp_std cpp_std; /**< Legacy field kept for compatibility */
