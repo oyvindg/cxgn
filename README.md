@@ -1,5 +1,8 @@
 # cxgn
 
+[![CI](https://github.com/oyvindg/cxgn/actions/workflows/ci.yml/badge.svg)](https://github.com/oyvindg/cxgn/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 `cxgn` is a build-time C11 library and CLI that reads C schema headers plus YAML and emits a generated `.gen.h` file.
 
 Use it when configuration should be authored as YAML but consumed as ordinary C data: embedded defaults, simulation scenes, strategy registries, test fixtures, generated lookup tables, and other config that benefits from compile-time type checking with no runtime parser dependency.
