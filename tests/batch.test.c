@@ -79,9 +79,9 @@ static void test_two_explicit_files(void) {
     assert(strstr(code, "typedef struct {")             != NULL);
     assert(strstr(code, "const SimpleConfig* config;")  != NULL);
     assert(strstr(code, "cxgn_map_entry_t")             != NULL);
-    assert(strstr(code, "typedef struct Config {")      != NULL);
+    assert(strstr(code, "typedef struct config_registry_t {") != NULL);
     assert(strstr(code, "static const cxgn_map_entry_t _config_entries[]") != NULL);
-    assert(strstr(code, "static const Config config =") != NULL);
+    assert(strstr(code, "static const config_registry_t config =") != NULL);
     assert(strstr(code, ".entries = _config_entries")   != NULL);
     assert(strstr(code, ".count = 2")                   != NULL);
     assert(strstr(code, "\"alpha\"")                    != NULL);
@@ -244,7 +244,8 @@ static void test_custom_map_names(void) {
     const char* code = cxgn_output_get_code(out);
     assert(strstr(code, "my_entry_t")   != NULL);
     assert(strstr(code, "static const my_entry_t _my_registry_entries[]") != NULL);
-    assert(strstr(code, "static const Config my_registry =") != NULL);
+    assert(strstr(code, "typedef struct my_registry_registry_t {") != NULL);
+    assert(strstr(code, "static const my_registry_registry_t my_registry =") != NULL);
     assert(strstr(code, ".entries = _my_registry_entries") != NULL);
     assert(strstr(code, ".count = 1") != NULL);
 
@@ -317,7 +318,7 @@ static void test_continue_on_error_keeps_successful_entries(void) {
     const char* combined = cxgn_output_get_code(result.combined_output);
     assert(strstr(combined, "alpha_config") != NULL);
     assert(strstr(combined, "invalid_missing_config") == NULL);
-    assert(strstr(combined, "static const Config config =") != NULL);
+    assert(strstr(combined, "static const config_registry_t config =") != NULL);
     assert(strstr(combined, ".count = 1") != NULL);
 
     assert(result.entries[0].output != NULL);

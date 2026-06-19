@@ -411,7 +411,19 @@ bool cxgn_batch_generate_detailed(cxgn_batch* batch,
         root_struct = cxgn_struct_parser_get_struct(parser, struct_count - 1);
     }
     const char* struct_name = cxgn_struct_get_name(root_struct);
-    map_registry_type = cxgn_strdup("Config");
+    {
+        const int needed = snprintf(NULL, 0, "%s_registry_t", map_name);
+        if (needed < 0) {
+            cxgn_error_set(err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
+            return false;
+        }
+        map_registry_type = (char*)malloc((size_t)needed + 1u);
+        if (!map_registry_type) {
+            cxgn_error_set(err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
+            return false;
+        }
+        snprintf(map_registry_type, (size_t)needed + 1u, "%s_registry_t", map_name);
+    }
     if (!map_registry_type) {
         cxgn_error_set(err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
         return false;
