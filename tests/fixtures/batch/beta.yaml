@@ -1,0 +1,3 @@
+timeout: 20
+name: "beta"
+enabled: false

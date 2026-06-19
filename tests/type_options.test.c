@@ -14,7 +14,7 @@ static void test_custom_type_output_options(void) {
     cxgn_struct_parser* parser = cxgn_struct_parser_new(utils);
     cxgn_error err = {0};
 
-    const bool parsed = cxgn_struct_parser_parse_file(parser, "fixtures/type_options.hpp", &err);
+    const bool parsed = cxgn_struct_parser_parse_file(parser, "fixtures/type_options.h", &err);
     assert(parsed);
 
     cxgn_generator* gen = cxgn_generator_new(parser, utils);
@@ -23,7 +23,6 @@ static void test_custom_type_output_options(void) {
     const cxgn_type_options opts = {
         .array_wrapper = "Vec",
         .optional_wrapper = "Maybe",
-        .variant_wrapper = "std::variant",
         .array_ctor_fmt = "Vec<%s>{%s_data, %s}",
         .optional_empty_fmt = "Maybe<%s>::empty()",
         .optional_value_prefix_fmt = "Maybe<%s>{",
@@ -36,13 +35,15 @@ static void test_custom_type_output_options(void) {
         "max_items: null\n";
 
     cxgn_output* out = cxgn_generate_from_yaml_text(
-        gen, yaml_text, "fixtures/type_options.yaml", "fixtures/type_options.hpp", &err);
+        gen, yaml_text, "fixtures/type_options.yaml", "fixtures/type_options.h", &err);
     assert(out != NULL);
 
     const char* code = cxgn_output_get_code(out);
     assert(code != NULL);
-    assert(strstr(code, "Vec<int>{") != NULL);
-    assert(strstr(code, "Maybe<int>::empty()") != NULL);
+    assert(strstr(code, "Vec<int>{") == NULL);
+    assert(strstr(code, "Maybe<int>::empty()") == NULL);
+    assert(strstr(code, ".values = {.data = _backing_") != NULL);
+    assert(strstr(code, ".max_items = {.has_value = false}") != NULL);
 
     cxgn_output_free(out);
     cxgn_generator_free(gen);

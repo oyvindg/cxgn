@@ -7,4 +7,8 @@ waypoints:
   - { x: 0.0, y: 0.0 }
   - { x: 10.0, y: 5.0 }
   - { x: 20.0, y: 0.0 }
+preview_point: null
+spawn_area:
+  center: { x: 5.0, y: 2.5 }
+  radius: 1.5
 max_objects: 256

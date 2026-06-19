@@ -1,24 +1,46 @@
-set(TESTDATA_DIR ${CMAKE_CURRENT_SOURCE_DIR}/testdata)
-
-# Auto-discover tests under libs/cxgn/tests
-file(GLOB CXGN_C_TESTS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/*.test.c")
-file(GLOB CXGN_CPP_TESTS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/*.test.cpp")
-
-# YAML-dependent test basenames
-set(CXGN_YAML_DEPENDENT
-    code_generator
-    yaml_types
-    integration
-    warning_colors
-    vec3
+set(CXGN_TEST_BASES
+    capability
+    cli
+    document
+    string_utils
+    path
+    errors
     hexapod_leg
+    ownership
+    struct_parser
+    struct_parser_text
+    validation
     all_types
+    type_options
     shapes
+    vec3
+    yaml_types
+    yaml_document
+    document_merge
+    code_generator
+    integration
+    batch
 )
 
-foreach(test_file IN LISTS CXGN_C_TESTS)
-    get_filename_component(test_name "${test_file}" NAME_WE)      # e.g. string_utils.test
-    string(REPLACE ".test" "" test_base "${test_name}")           # e.g. string_utils
+set(CXGN_YAML_DEPENDENT
+    cli
+    hexapod_leg
+    ownership
+    validation
+    all_types
+    type_options
+    shapes
+    vec3
+    yaml_types
+    yaml_document
+    document_merge
+    code_generator
+    integration
+    batch
+)
+
+foreach(test_base IN LISTS CXGN_TEST_BASES)
+    set(test_file "${CMAKE_CURRENT_SOURCE_DIR}/${test_base}.test.c")
 
     list(FIND CXGN_YAML_DEPENDENT "${test_base}" yaml_idx)
     if(yaml_idx GREATER -1 AND NOT CXGN_YAML_SUPPORT)
@@ -28,20 +50,13 @@ foreach(test_file IN LISTS CXGN_C_TESTS)
     set(target_name "cxgn_test_${test_base}")
     add_executable("${target_name}" "${test_file}")
     target_link_libraries("${target_name}" PRIVATE cxgn)
-
-    add_test(NAME "cxgn_${test_base}" COMMAND "$<TARGET_FILE:${target_name}>"
-        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
-endforeach()
-
-foreach(test_file IN LISTS CXGN_CPP_TESTS)
-    get_filename_component(test_name "${test_file}" NAME_WE)      # e.g. cpp_wrapper.test
-    string(REPLACE ".test" "" test_base "${test_name}")           # e.g. cpp_wrapper
-
-    set(target_name "cxgn_test_${test_base}")
-    add_executable("${target_name}" "${test_file}")
-    target_compile_features("${target_name}" PRIVATE cxx_std_17)
-    target_link_libraries("${target_name}" PRIVATE cxgn)
-    target_include_directories("${target_name}" PRIVATE "${CMAKE_SOURCE_DIR}/include")
+    if(test_base STREQUAL "document" OR test_base STREQUAL "yaml_document")
+        target_include_directories("${target_name}" PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)
+    endif()
+    if(test_base STREQUAL "cli")
+        target_compile_definitions("${target_name}" PRIVATE CXGN_CLI_PATH="$<TARGET_FILE:cxgn-cli>")
+        add_dependencies("${target_name}" cxgn-cli)
+    endif()
 
     add_test(NAME "cxgn_${test_base}" COMMAND "$<TARGET_FILE:${target_name}>"
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})

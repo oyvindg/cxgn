@@ -22,7 +22,6 @@
 #define CXGN_MAX_PATH_DEPTH 32
 #define CXGN_MAX_INCLUDE_DEPTH 16
 #define CXGN_BUFFER_SIZE 8192
-#define CXGN_LINE_SIZE 1024
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * String Utils
@@ -34,6 +33,7 @@
  * Currently stateless but allows for future caching or customization.
  */
 struct cxgn_string_utils {
+    size_t ref_count;
     int placeholder;  /* Empty structs not allowed in C */
 };
 
@@ -69,6 +69,47 @@ struct cxgn_path {
 };
 
 /* ═══════════════════════════════════════════════════════════════════════════
+ * Normalized Document Model
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+typedef struct {
+    char* key;
+    cxgn_node* value;
+    size_t line;
+    size_t column;
+} cxgn_object_entry;
+
+struct cxgn_node {
+    cxgn_node_type type;
+    size_t line;
+    size_t column;
+    char* raw_scalar_text;
+    size_t raw_scalar_len;
+    union {
+        bool bool_value;
+        long long int_value;
+        double float_value;
+        struct {
+            char* data;
+            size_t len;
+        } string;
+        struct {
+            cxgn_node** items;
+            size_t count;
+        } array;
+        struct {
+            cxgn_object_entry* entries;
+            size_t count;
+        } object;
+    } as;
+};
+
+struct cxgn_document {
+    cxgn_node* root;
+    char* source_name;
+};
+
+/* ═══════════════════════════════════════════════════════════════════════════
  * Field Info
  * ═══════════════════════════════════════════════════════════════════════════ */
 
@@ -79,13 +120,34 @@ struct cxgn_field_info {
     char* name;               /**< Field name (owned) */
     char* type;               /**< Full type string (owned) */
     char* default_value;      /**< Default value or NULL (owned) */
-    bool is_array;            /**< true if Array<T> */
+    bool is_array;            /**< true if cxgn array typedef */
     char* array_elem_type;    /**< Element type if array (owned) */
-    bool is_optional;         /**< true if Optional<T> */
+    bool is_optional;         /**< true if cxgn optional typedef */
     char* optional_value_type; /**< Value type if optional (owned) */
-    bool is_variant;             /**< true if std::variant<T...> */
-    char** variant_types;      /**< Owned array of type strings */
-    size_t variant_type_count; /**< Number of variant types */
+};
+
+typedef enum {
+    CXGN_ALIAS_ARRAY = 1,
+    CXGN_ALIAS_OPTIONAL = 2,
+    CXGN_ALIAS_SCALAR = 3  /**< Simple typedef — resolves the underlying type   */
+} cxgn_type_alias_kind;
+
+typedef struct {
+    char* name;
+    char* value_type;
+    cxgn_type_alias_kind kind;
+} cxgn_type_alias;
+
+typedef struct {
+    char* name;
+} cxgn_enum_value_info;
+
+struct cxgn_enum_info {
+    char* name;               /**< Enum typedef/name (owned) */
+    char* defined_in;         /**< File path (owned) */
+    cxgn_enum_value_info* values;
+    size_t value_count;
+    size_t value_capacity;
 };
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -108,16 +170,23 @@ struct cxgn_struct_info {
  * ═══════════════════════════════════════════════════════════════════════════ */
 
 /**
- * @brief C++ header parser for struct definitions.
+ * @brief C schema parser for struct definitions.
  */
 struct cxgn_struct_parser {
-    const cxgn_string_utils* utils;   /**< Borrowed reference */
+    size_t ref_count;
+    cxgn_string_utils* utils;         /**< Retained reference */
     cxgn_struct_info* structs;        /**< Array of parsed structs (owned) */
     size_t struct_count;
     size_t struct_capacity;
+    struct cxgn_enum_info* enums;     /**< Parsed enums (owned) */
+    size_t enum_count;
+    size_t enum_capacity;
     char** parsed_files;            /**< Already parsed files (owned) */
     size_t parsed_file_count;
     size_t parsed_file_capacity;
+    cxgn_type_alias* aliases;         /**< Parsed helper typedefs/macros */
+    size_t alias_count;
+    size_t alias_capacity;
 };
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -128,18 +197,16 @@ struct cxgn_struct_parser {
  * @brief Code generator instance.
  */
 struct cxgn_generator {
-    const cxgn_struct_parser* parser;  /**< Borrowed reference */
-    const cxgn_string_utils* utils;    /**< Borrowed reference */
+    size_t ref_count;
+    cxgn_struct_parser* parser;        /**< Retained reference */
+    cxgn_string_utils* utils;          /**< Retained reference */
     cxgn_expression_handler expr_handler; /**< Expression handler (copied) */
     bool has_expr_handler;
-    char* array_wrapper;             /**< Wrapper token for arrays */
-    char* optional_wrapper;          /**< Wrapper token for optionals */
-    char* variant_wrapper;           /**< Wrapper token for std::variant */
-    char* array_ctor_fmt;            /**< Array constructor format */
-    char* optional_empty_fmt;        /**< Optional empty constructor format */
-    char* optional_value_prefix_fmt; /**< Optional value prefix format */
-    char* optional_value_suffix;     /**< Optional value suffix */
-    cxgn_cpp_std cpp_std;              /**< Target C++ standard (default: CXGN_CPP_STD_20) */
+    cxgn_validation_options validation;
+    char* helpers_header;
+    char* root_struct_name;          /**< Explicit root struct override (owned, NULL = last parsed) */
+    char* symbol_prefix;             /**< Prefix applied to emitted variable names (owned, NULL = none) */
+    cxgn_cpp_std cpp_std;            /**< Legacy compatibility field */
 };
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -150,9 +217,51 @@ struct cxgn_generator {
  * @brief Generated code output.
  */
 struct cxgn_output {
+    size_t ref_count;
     char* code;               /**< Generated code (owned) */
     size_t length;            /**< Code length */
     size_t capacity;          /**< Buffer capacity */
+};
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Batch
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Glob path list (shared between glob.c and batch.c)
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * @brief Dynamic array of file paths used during glob expansion.
+ */
+typedef struct {
+    char** paths;
+    size_t count;
+    size_t capacity;
+} path_list_t;
+
+/**
+ * @brief Expand a glob pattern into a sorted list of matching file paths.
+ *
+ * Supports *, ?, brackets, and ** (recursive descent).
+ * Zero matches is not an error.
+ *
+ * @param pattern  Glob pattern
+ * @param out      Accumulator; matched paths are appended (not replaced)
+ * @param err      Error output (can be NULL)
+ * @return true on success (even if no matches), false on OOM
+ */
+bool cxgn_glob_expand(const char* pattern, path_list_t* out, cxgn_error* err);
+
+/**
+ * @brief Batch handle accumulating input files before combined generation.
+ */
+struct cxgn_batch {
+    size_t ref_count;
+    cxgn_generator* gen;   /**< Retained generator reference */
+    char** yaml_paths;     /**< Owned array of resolved YAML file paths */
+    size_t count;
+    size_t capacity;
 };
 
 /**
@@ -177,6 +286,51 @@ char* cxgn_path_join(const char* dir, const char* file);
  * @return Newly allocated relative path
  */
 char* cxgn_path_relative_to_file(const char* from_path, const char* target_path);
+
+const cxgn_type_alias* cxgn_struct_parser_find_alias(const cxgn_struct_parser* parser,
+                                                     const char* name);
+bool cxgn_struct_parser_parse_text(cxgn_struct_parser* parser,
+                                   const char* header_text,
+                                   const char* source_name,
+                                   cxgn_error* err);
+
+cxgn_document* cxgn_document_new(const char* source_name);
+void cxgn_document_free(cxgn_document* doc);
+bool cxgn_document_set_root(cxgn_document* doc, cxgn_node* root);
+
+cxgn_node* cxgn_node_new(cxgn_node_type type);
+cxgn_node* cxgn_node_new_null(void);
+cxgn_node* cxgn_node_new_bool(bool value);
+cxgn_node* cxgn_node_new_integer(long long value);
+cxgn_node* cxgn_node_new_float(double value);
+cxgn_node* cxgn_node_new_string(const char* data, size_t len);
+cxgn_node* cxgn_node_new_array(void);
+cxgn_node* cxgn_node_new_object(void);
+void cxgn_node_free(cxgn_node* node);
+void cxgn_node_set_location(cxgn_node* node, size_t line, size_t column);
+bool cxgn_node_set_raw_scalar_text(cxgn_node* node, const char* text, size_t len);
+bool cxgn_node_array_append(cxgn_node* array_node, cxgn_node* item);
+bool cxgn_node_object_append(cxgn_node* object_node,
+                             const char* key,
+                             cxgn_node* value,
+                             size_t line,
+                             size_t column);
+
+cxgn_document* cxgn_document_from_yaml_file(const char* yaml_path, cxgn_error* err);
+cxgn_document* cxgn_document_from_yaml_text(const char* yaml_text,
+                                            const char* source_name,
+                                            cxgn_error* err);
+
+/**
+ * @brief Set the symbol prefix used when emitting variable names.
+ *
+ * Internal API used by batch generation to isolate per-entry symbols.
+ * Pass NULL to clear the prefix (default behaviour).
+ *
+ * @param gen Generator instance
+ * @param prefix Prefix string or NULL
+ */
+void cxgn_generator_set_symbol_prefix(cxgn_generator* gen, const char* prefix);
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * Internal Helper Functions
@@ -236,6 +390,7 @@ static inline void cxgn_error_init(cxgn_error* err) {
  */
 static inline void cxgn_error_set(cxgn_error* err, cxgn_error_code code, const char* message) {
     if (err) {
+        cxgn_error_clear(err);
         err->code = code;
         err->message = message;
         err->needs_free = false;

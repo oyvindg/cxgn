@@ -28,7 +28,7 @@ static void test_file_not_found(void) {
     cxgn_struct_parser* parser = cxgn_struct_parser_new(utils);
     cxgn_error err = {0};
 
-    bool result = cxgn_struct_parser_parse_file(parser, "nonexistent.hpp", &err);
+    bool result = cxgn_struct_parser_parse_file(parser, "nonexistent.h", &err);
     assert(!result);
     assert(err.code == CXGN_ERR_FILE_NOT_FOUND);
 
@@ -53,11 +53,45 @@ static void test_error_clear(void) {
     printf("  ✓ test_error_clear\n");
 }
 
+static void test_root_type_error_reports_source_location(void) {
+    cxgn_error err = {0};
+    cxgn_string_utils* utils = cxgn_string_utils_new();
+    cxgn_struct_parser* parser = cxgn_struct_parser_new(utils);
+    assert(utils != NULL);
+    assert(parser != NULL);
+    assert(cxgn_struct_parser_parse_file(parser, "fixtures/simple.h", &err));
+
+    cxgn_generator* gen = cxgn_generator_new(parser, utils);
+    assert(gen != NULL);
+
+    cxgn_output* out = cxgn_generate_from_yaml_text(
+        gen,
+        "- 1\n- 2\n",
+        "root_array.yaml",
+        "fixtures/simple.h",
+        &err);
+    assert(out == NULL);
+    assert(err.code == CXGN_ERR_YAML_ERROR);
+    assert(err.message != NULL);
+    assert(strstr(err.message, "mapping") != NULL);
+    assert(err.path != NULL);
+    assert(strcmp(err.path, "root_array.yaml") == 0);
+    assert(err.line == 1);
+    assert(err.column == 1);
+    cxgn_error_clear(&err);
+
+    cxgn_generator_free(gen);
+    cxgn_struct_parser_free(parser);
+    cxgn_string_utils_free(utils);
+    printf("  ✓ test_root_type_error_reports_source_location\n");
+}
+
 int main(void) {
     printf("Running error handling tests...\n");
     test_error_strings();
     test_file_not_found();
     test_error_clear();
+    test_root_type_error_reports_source_location();
     printf("All error handling tests passed!\n");
     return 0;
 }
