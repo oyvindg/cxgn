@@ -14,7 +14,7 @@ typedef struct {
     size_t count;
 } cxgn_path_parts;
 
-static void free_path_parts(cxgn_path_parts* parts) {
+static void cxgn_free_path_parts(cxgn_path_parts* parts) {
     if (!parts || !parts->items) return;
     for (size_t i = 0; i < parts->count; i++) {
         free(parts->items[i]);
@@ -24,7 +24,7 @@ static void free_path_parts(cxgn_path_parts* parts) {
     parts->count = 0;
 }
 
-static bool append_path_part(cxgn_path_parts* parts, const char* start, size_t len) {
+static bool cxgn_append_path_part(cxgn_path_parts* parts, const char* start, size_t len) {
     char** new_items = (char**)realloc(parts->items, (parts->count + 1) * sizeof(char*));
     if (!new_items) return false;
     parts->items = new_items;
@@ -34,7 +34,7 @@ static bool append_path_part(cxgn_path_parts* parts, const char* start, size_t l
     return true;
 }
 
-static bool split_normalized_parts(const char* path, cxgn_path_parts* parts) {
+static bool cxgn_split_normalized_parts(const char* path, cxgn_path_parts* parts) {
     const char* p = path;
 
     parts->items = NULL;
@@ -60,8 +60,8 @@ static bool split_normalized_parts(const char* path, cxgn_path_parts* parts) {
             }
         }
 
-        if (!append_path_part(parts, segment, len)) {
-            free_path_parts(parts);
+        if (!cxgn_append_path_part(parts, segment, len)) {
+            cxgn_free_path_parts(parts);
             return false;
         }
     }
@@ -69,7 +69,7 @@ static bool split_normalized_parts(const char* path, cxgn_path_parts* parts) {
     return true;
 }
 
-static char* join_parts(const cxgn_path_parts* parts, size_t start_index) {
+static char* cxgn_join_parts(const cxgn_path_parts* parts, size_t start_index) {
     size_t required = 1;
 
     for (size_t i = start_index; i < parts->count; i++) {
@@ -173,14 +173,14 @@ char* cxgn_path_relative_to_file(const char* from_path, const char* target_path)
     from_dir = cxgn_get_directory(from_path);
     if (!from_dir) return NULL;
 
-    if (!split_normalized_parts(from_dir, &from_parts)) {
+    if (!cxgn_split_normalized_parts(from_dir, &from_parts)) {
         free(from_dir);
         return NULL;
     }
     free(from_dir);
 
-    if (!split_normalized_parts(target_path, &target_parts)) {
-        free_path_parts(&from_parts);
+    if (!cxgn_split_normalized_parts(target_path, &target_parts)) {
+        cxgn_free_path_parts(&from_parts);
         return NULL;
     }
 
@@ -199,15 +199,15 @@ char* cxgn_path_relative_to_file(const char* from_path, const char* target_path)
 
     if (required == 1) {
         result = cxgn_strdup(".");
-        free_path_parts(&from_parts);
-        free_path_parts(&target_parts);
+        cxgn_free_path_parts(&from_parts);
+        cxgn_free_path_parts(&target_parts);
         return result;
     }
 
     result = (char*)malloc(required);
     if (!result) {
-        free_path_parts(&from_parts);
-        free_path_parts(&target_parts);
+        cxgn_free_path_parts(&from_parts);
+        cxgn_free_path_parts(&target_parts);
         return NULL;
     }
 
@@ -231,8 +231,8 @@ char* cxgn_path_relative_to_file(const char* from_path, const char* target_path)
     }
     result[pos] = '\0';
 
-    free_path_parts(&from_parts);
-    free_path_parts(&target_parts);
+    cxgn_free_path_parts(&from_parts);
+    cxgn_free_path_parts(&target_parts);
     return result;
 }
 

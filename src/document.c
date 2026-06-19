@@ -9,7 +9,7 @@
 static cxgn_node* cxgn_node_clone_internal(const cxgn_node* node);
 static cxgn_node* cxgn_node_merge_internal(const cxgn_node* base_node, const cxgn_node* overlay_node);
 
-static bool yaml_buf_append(char** buf, size_t* len, size_t* cap, const char* text) {
+static bool cxgn_yaml_buf_append(char** buf, size_t* len, size_t* cap, const char* text) {
     size_t text_len;
     char* next;
     if (!buf || !len || !cap || !text) return false;
@@ -27,41 +27,41 @@ static bool yaml_buf_append(char** buf, size_t* len, size_t* cap, const char* te
     return true;
 }
 
-static bool yaml_buf_append_indent(char** buf, size_t* len, size_t* cap, int indent) {
+static bool cxgn_yaml_buf_append_indent(char** buf, size_t* len, size_t* cap, int indent) {
     for (int i = 0; i < indent; i++) {
-        if (!yaml_buf_append(buf, len, cap, "  ")) return false;
+        if (!cxgn_yaml_buf_append(buf, len, cap, "  ")) return false;
     }
     return true;
 }
 
-static bool yaml_buf_append_escaped_string(char** buf, size_t* len, size_t* cap, const char* text) {
+static bool cxgn_yaml_buf_append_escaped_string(char** buf, size_t* len, size_t* cap, const char* text) {
     const unsigned char* p = (const unsigned char*)(text ? text : "");
-    if (!yaml_buf_append(buf, len, cap, "\"")) return false;
+    if (!cxgn_yaml_buf_append(buf, len, cap, "\"")) return false;
     for (; *p; ++p) {
         switch (*p) {
             case '\\':
-                if (!yaml_buf_append(buf, len, cap, "\\\\")) return false;
+                if (!cxgn_yaml_buf_append(buf, len, cap, "\\\\")) return false;
                 break;
             case '"':
-                if (!yaml_buf_append(buf, len, cap, "\\\"")) return false;
+                if (!cxgn_yaml_buf_append(buf, len, cap, "\\\"")) return false;
                 break;
             case '\n':
-                if (!yaml_buf_append(buf, len, cap, "\\n")) return false;
+                if (!cxgn_yaml_buf_append(buf, len, cap, "\\n")) return false;
                 break;
             case '\r':
-                if (!yaml_buf_append(buf, len, cap, "\\r")) return false;
+                if (!cxgn_yaml_buf_append(buf, len, cap, "\\r")) return false;
                 break;
             case '\t':
-                if (!yaml_buf_append(buf, len, cap, "\\t")) return false;
+                if (!cxgn_yaml_buf_append(buf, len, cap, "\\t")) return false;
                 break;
             default: {
                 char ch[2] = {(char)*p, '\0'};
-                if (!yaml_buf_append(buf, len, cap, ch)) return false;
+                if (!cxgn_yaml_buf_append(buf, len, cap, ch)) return false;
                 break;
             }
         }
     }
-    return yaml_buf_append(buf, len, cap, "\"");
+    return cxgn_yaml_buf_append(buf, len, cap, "\"");
 }
 
 static bool cxgn_node_to_yaml_append(const cxgn_node* node,
@@ -77,23 +77,23 @@ static bool cxgn_object_to_yaml_append(const cxgn_node* node,
                                        int indent) {
     for (size_t i = 0; i < node->as.object.count; i++) {
         const cxgn_object_entry* entry = &node->as.object.entries[i];
-        if (!yaml_buf_append_indent(buf, len, cap, indent)) return false;
-        if (!yaml_buf_append(buf, len, cap, entry->key ? entry->key : "")) return false;
-        if (!yaml_buf_append(buf, len, cap, ":")) return false;
+        if (!cxgn_yaml_buf_append_indent(buf, len, cap, indent)) return false;
+        if (!cxgn_yaml_buf_append(buf, len, cap, entry->key ? entry->key : "")) return false;
+        if (!cxgn_yaml_buf_append(buf, len, cap, ":")) return false;
         if (entry->value &&
             (entry->value->type == CXGN_NODE_OBJECT || entry->value->type == CXGN_NODE_ARRAY)) {
             if (entry->value->type == CXGN_NODE_ARRAY && entry->value->as.array.count == 0u) {
-                if (!yaml_buf_append(buf, len, cap, " []\n")) return false;
+                if (!cxgn_yaml_buf_append(buf, len, cap, " []\n")) return false;
                 continue;
             }
             if (entry->value->type == CXGN_NODE_OBJECT && entry->value->as.object.count == 0u) {
-                if (!yaml_buf_append(buf, len, cap, " {}\n")) return false;
+                if (!cxgn_yaml_buf_append(buf, len, cap, " {}\n")) return false;
                 continue;
             }
-            if (!yaml_buf_append(buf, len, cap, "\n")) return false;
+            if (!cxgn_yaml_buf_append(buf, len, cap, "\n")) return false;
             if (!cxgn_node_to_yaml_append(entry->value, buf, len, cap, indent + 1)) return false;
         } else {
-            if (!yaml_buf_append(buf, len, cap, " ")) return false;
+            if (!cxgn_yaml_buf_append(buf, len, cap, " ")) return false;
             if (!cxgn_node_to_yaml_append(entry->value, buf, len, cap, indent)) return false;
         }
     }
@@ -105,57 +105,57 @@ static bool cxgn_array_to_yaml_append(const cxgn_node* node,
                                       size_t* len,
                                       size_t* cap,
                                       int indent) {
-    if (node->as.array.count == 0) return yaml_buf_append(buf, len, cap, "[]\n");
+    if (node->as.array.count == 0) return cxgn_yaml_buf_append(buf, len, cap, "[]\n");
     for (size_t i = 0; i < node->as.array.count; i++) {
         const cxgn_node* item = node->as.array.items[i];
-        if (!yaml_buf_append_indent(buf, len, cap, indent)) return false;
-        if (!yaml_buf_append(buf, len, cap, "-")) return false;
+        if (!cxgn_yaml_buf_append_indent(buf, len, cap, indent)) return false;
+        if (!cxgn_yaml_buf_append(buf, len, cap, "-")) return false;
         if (item && (item->type == CXGN_NODE_OBJECT || item->type == CXGN_NODE_ARRAY)) {
             if (item->type == CXGN_NODE_OBJECT && item->as.object.count > 0) {
                 const cxgn_object_entry* first = &item->as.object.entries[0];
-                if (!yaml_buf_append(buf, len, cap, " ")) return false;
-                if (!yaml_buf_append(buf, len, cap, first->key ? first->key : "")) return false;
-                if (!yaml_buf_append(buf, len, cap, ":")) return false;
+                if (!cxgn_yaml_buf_append(buf, len, cap, " ")) return false;
+                if (!cxgn_yaml_buf_append(buf, len, cap, first->key ? first->key : "")) return false;
+                if (!cxgn_yaml_buf_append(buf, len, cap, ":")) return false;
                 if (first->value &&
                     (first->value->type == CXGN_NODE_OBJECT || first->value->type == CXGN_NODE_ARRAY)) {
                     if (first->value->type == CXGN_NODE_ARRAY && first->value->as.array.count == 0u) {
-                        if (!yaml_buf_append(buf, len, cap, " []\n")) return false;
+                        if (!cxgn_yaml_buf_append(buf, len, cap, " []\n")) return false;
                     } else if (first->value->type == CXGN_NODE_OBJECT && first->value->as.object.count == 0u) {
-                        if (!yaml_buf_append(buf, len, cap, " {}\n")) return false;
+                        if (!cxgn_yaml_buf_append(buf, len, cap, " {}\n")) return false;
                     } else {
-                        if (!yaml_buf_append(buf, len, cap, "\n")) return false;
+                        if (!cxgn_yaml_buf_append(buf, len, cap, "\n")) return false;
                         if (!cxgn_node_to_yaml_append(first->value, buf, len, cap, indent + 2)) return false;
                     }
                 } else {
-                    if (!yaml_buf_append(buf, len, cap, " ")) return false;
+                    if (!cxgn_yaml_buf_append(buf, len, cap, " ")) return false;
                     if (!cxgn_node_to_yaml_append(first->value, buf, len, cap, indent + 1)) return false;
                 }
                 for (size_t j = 1; j < item->as.object.count; j++) {
                     const cxgn_object_entry* entry = &item->as.object.entries[j];
-                    if (!yaml_buf_append_indent(buf, len, cap, indent + 1)) return false;
-                    if (!yaml_buf_append(buf, len, cap, entry->key ? entry->key : "")) return false;
-                    if (!yaml_buf_append(buf, len, cap, ":")) return false;
+                    if (!cxgn_yaml_buf_append_indent(buf, len, cap, indent + 1)) return false;
+                    if (!cxgn_yaml_buf_append(buf, len, cap, entry->key ? entry->key : "")) return false;
+                    if (!cxgn_yaml_buf_append(buf, len, cap, ":")) return false;
                     if (entry->value &&
                         (entry->value->type == CXGN_NODE_OBJECT || entry->value->type == CXGN_NODE_ARRAY)) {
                         if (entry->value->type == CXGN_NODE_ARRAY && entry->value->as.array.count == 0u) {
-                            if (!yaml_buf_append(buf, len, cap, " []\n")) return false;
+                            if (!cxgn_yaml_buf_append(buf, len, cap, " []\n")) return false;
                         } else if (entry->value->type == CXGN_NODE_OBJECT && entry->value->as.object.count == 0u) {
-                            if (!yaml_buf_append(buf, len, cap, " {}\n")) return false;
+                            if (!cxgn_yaml_buf_append(buf, len, cap, " {}\n")) return false;
                         } else {
-                            if (!yaml_buf_append(buf, len, cap, "\n")) return false;
+                            if (!cxgn_yaml_buf_append(buf, len, cap, "\n")) return false;
                             if (!cxgn_node_to_yaml_append(entry->value, buf, len, cap, indent + 2)) return false;
                         }
                     } else {
-                        if (!yaml_buf_append(buf, len, cap, " ")) return false;
+                        if (!cxgn_yaml_buf_append(buf, len, cap, " ")) return false;
                         if (!cxgn_node_to_yaml_append(entry->value, buf, len, cap, indent + 1)) return false;
                     }
                 }
             } else {
-                if (!yaml_buf_append(buf, len, cap, "\n")) return false;
+                if (!cxgn_yaml_buf_append(buf, len, cap, "\n")) return false;
                 if (!cxgn_node_to_yaml_append(item, buf, len, cap, indent + 1)) return false;
             }
         } else {
-            if (!yaml_buf_append(buf, len, cap, " ")) return false;
+            if (!cxgn_yaml_buf_append(buf, len, cap, " ")) return false;
             if (!cxgn_node_to_yaml_append(item, buf, len, cap, indent)) return false;
         }
     }
@@ -174,26 +174,26 @@ static bool cxgn_node_to_yaml_append(const cxgn_node* node,
     size_t str_len = 0;
     const char* sv;
 
-    if (!node) return yaml_buf_append(buf, len, cap, "null\n");
+    if (!node) return cxgn_yaml_buf_append(buf, len, cap, "null\n");
 
     switch (node->type) {
         case CXGN_NODE_NULL:
-            return yaml_buf_append(buf, len, cap, "null\n");
+            return cxgn_yaml_buf_append(buf, len, cap, "null\n");
         case CXGN_NODE_BOOL:
             bv = node->as.bool_value;
-            return yaml_buf_append(buf, len, cap, bv ? "true\n" : "false\n");
+            return cxgn_yaml_buf_append(buf, len, cap, bv ? "true\n" : "false\n");
         case CXGN_NODE_INTEGER:
             iv = node->as.int_value;
             snprintf(number, sizeof(number), "%lld\n", iv);
-            return yaml_buf_append(buf, len, cap, number);
+            return cxgn_yaml_buf_append(buf, len, cap, number);
         case CXGN_NODE_FLOAT:
             fv = node->as.float_value;
             snprintf(number, sizeof(number), "%.17g\n", fv);
-            return yaml_buf_append(buf, len, cap, number);
+            return cxgn_yaml_buf_append(buf, len, cap, number);
         case CXGN_NODE_STRING:
             sv = cxgn_node_get_string(node, &str_len);
-            if (!yaml_buf_append_escaped_string(buf, len, cap, sv ? sv : "")) return false;
-            return yaml_buf_append(buf, len, cap, "\n");
+            if (!cxgn_yaml_buf_append_escaped_string(buf, len, cap, sv ? sv : "")) return false;
+            return cxgn_yaml_buf_append(buf, len, cap, "\n");
         case CXGN_NODE_ARRAY:
             return cxgn_array_to_yaml_append(node, buf, len, cap, indent);
         case CXGN_NODE_OBJECT:

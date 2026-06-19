@@ -64,7 +64,7 @@ void cxgn_batch_options_init(cxgn_batch_options* options) {
     options->continue_on_error = false;
 }
 
-static void batch_entry_clear(cxgn_batch_entry_result* entry) {
+static void cxgn_batch_entry_clear(cxgn_batch_entry_result* entry) {
     if (!entry) return;
     free(entry->yaml_path);
     free(entry->key);
@@ -78,13 +78,13 @@ void cxgn_batch_result_clear(cxgn_batch_result* result) {
     if (!result) return;
     cxgn_output_free(result->combined_output);
     for (size_t i = 0; i < result->entry_count; i++) {
-        batch_entry_clear(&result->entries[i]);
+        cxgn_batch_entry_clear(&result->entries[i]);
     }
     free(result->entries);
     memset(result, 0, sizeof(*result));
 }
 
-static bool batch_error_clone(cxgn_error* dst, const cxgn_error* src) {
+static bool cxgn_batch_error_clone(cxgn_error* dst, const cxgn_error* src) {
     if (!dst) return false;
     cxgn_error_init(dst);
     if (!src || src->code == CXGN_OK) return true;
@@ -115,7 +115,7 @@ oom:
     return false;
 }
 
-static bool batch_entry_set_error(cxgn_batch_entry_result* entry, cxgn_error* err) {
+static bool cxgn_batch_entry_set_error(cxgn_batch_entry_result* entry, cxgn_error* err) {
     if (!entry || !err) return false;
     cxgn_error_clear(&entry->error);
     entry->error = *err;
@@ -127,7 +127,7 @@ static bool batch_entry_set_error(cxgn_batch_entry_result* entry, cxgn_error* er
  * Internal: path deduplication / append
  * ═══════════════════════════════════════════════════════════════════════════ */
 
-static bool batch_push(cxgn_batch* batch, const char* path) {
+static bool cxgn_batch_push(cxgn_batch* batch, const char* path) {
     for (size_t i = 0; i < batch->count; i++) {
         if (strcmp(batch->yaml_paths[i], path) == 0) return true;
     }
@@ -144,7 +144,7 @@ static bool batch_push(cxgn_batch* batch, const char* path) {
     return true;
 }
 
-static int cmp_path_str(const void* a, const void* b) {
+static int cxgn_batch_cmp_path_str(const void* a, const void* b) {
     return strcmp(*(const char* const*)a, *(const char* const*)b);
 }
 
@@ -163,7 +163,7 @@ bool cxgn_batch_add_file(cxgn_batch* batch, const char* yaml_path, cxgn_error* e
         cxgn_error_set(err, CXGN_ERR_FILE_NOT_FOUND, "YAML file not found");
         return false;
     }
-    if (!batch_push(batch, yaml_path)) {
+    if (!cxgn_batch_push(batch, yaml_path)) {
         cxgn_error_set(err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
         return false;
     }
@@ -182,7 +182,7 @@ bool cxgn_batch_add_glob(cxgn_batch* batch, const char* pattern, cxgn_error* err
 
     bool ok = true;
     for (size_t i = 0; i < pl.count; i++) {
-        if (!batch_push(batch, pl.paths[i])) {
+        if (!cxgn_batch_push(batch, pl.paths[i])) {
             cxgn_error_set(err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
             ok = false;
             break;
@@ -197,7 +197,7 @@ bool cxgn_batch_add_glob(cxgn_batch* batch, const char* pattern, cxgn_error* err
  * Internal: output helpers (local to this file)
  * ═══════════════════════════════════════════════════════════════════════════ */
 
-static bool bout_append(cxgn_output* out, const char* s) {
+static bool cxgn_batch_output_append(cxgn_output* out, const char* s) {
     if (!out || !s) return false;
     size_t len = strlen(s);
     if (out->length + len + 1 > out->capacity) {
@@ -213,7 +213,7 @@ static bool bout_append(cxgn_output* out, const char* s) {
     return true;
 }
 
-static bool bout_appendf(cxgn_output* out, const char* fmt, ...) {
+static bool cxgn_batch_output_appendf(cxgn_output* out, const char* fmt, ...) {
     va_list args;
     va_list args_copy;
     va_start(args, fmt);
@@ -233,12 +233,12 @@ static bool bout_appendf(cxgn_output* out, const char* fmt, ...) {
     vsnprintf(buf, (size_t)needed + 1, fmt, args_copy);
     va_end(args_copy);
 
-    const bool ok = bout_append(out, buf);
+    const bool ok = cxgn_batch_output_append(out, buf);
     free(buf);
     return ok;
 }
 
-static cxgn_output* bout_new(void) {
+static cxgn_output* cxgn_batch_output_new(void) {
     cxgn_output* o = (cxgn_output*)calloc(1, sizeof(*o));
     if (!o) return NULL;
     o->ref_count = 1;
@@ -268,7 +268,7 @@ static cxgn_output* bout_new(void) {
  * the tail of the stem until none remain.
  * Returns a newly-allocated string; caller must free it.
  */
-static char* strip_intermediate_extensions(const char* stem, size_t stem_len) {
+static char* cxgn_strip_intermediate_extensions(const char* stem, size_t stem_len) {
     static const char* const known[] = {
         ".manifest", ".gen", ".merged", ".schema", NULL
     };
@@ -289,7 +289,7 @@ static char* strip_intermediate_extensions(const char* stem, size_t stem_len) {
     return s;
 }
 
-static bool path_under_root(const char* path, const char* root, const char** rel_out) {
+static bool cxgn_path_under_root(const char* path, const char* root, const char** rel_out) {
     size_t root_len = strlen(root);
     while (root_len > 0 && root[root_len - 1] == '/') root_len--;
 
@@ -304,11 +304,11 @@ static bool path_under_root(const char* path, const char* root, const char** rel
     return true;
 }
 
-static char* derive_key(const char* yaml_path, const char* map_root, cxgn_error* err) {
+static char* cxgn_derive_key(const char* yaml_path, const char* map_root, cxgn_error* err) {
     const char* path = yaml_path;
 
     if (map_root && map_root[0]) {
-        if (!path_under_root(path, map_root, &path)) {
+        if (!cxgn_path_under_root(path, map_root, &path)) {
             cxgn_error_set(err, CXGN_ERR_PARSE_ERROR,
                            "File is outside --map-root");
             return NULL;
@@ -334,7 +334,7 @@ static char* derive_key(const char* yaml_path, const char* map_root, cxgn_error*
     if (len == 0) return cxgn_strdup("_unnamed");
 
     /* Strip any intermediate known extensions (e.g. ".manifest", ".gen"). */
-    return strip_intermediate_extensions(path, len);
+    return cxgn_strip_intermediate_extensions(path, len);
 }
 
 /**
@@ -343,7 +343,7 @@ static char* derive_key(const char* yaml_path, const char* map_root, cxgn_error*
  * Replaces non-alphanumeric characters with '_'.
  * Prepends '_' if the first character is a digit.
  */
-static char* key_to_ident(const char* key) {
+static char* cxgn_key_to_ident(const char* key) {
     size_t len = strlen(key);
     char* ident = (char*)malloc(len + 2);
     if (!ident) return NULL;
@@ -411,18 +411,10 @@ bool cxgn_batch_generate_detailed(cxgn_batch* batch,
         root_struct = cxgn_struct_parser_get_struct(parser, struct_count - 1);
     }
     const char* struct_name = cxgn_struct_get_name(root_struct);
-    {
-        const int needed = snprintf(NULL, 0, "%s_registry_t", map_name);
-        if (needed < 0) {
-            cxgn_error_set(err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
-            return false;
-        }
-        map_registry_type = (char*)malloc((size_t)needed + 1u);
-        if (!map_registry_type) {
-            cxgn_error_set(err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
-            return false;
-        }
-        snprintf(map_registry_type, (size_t)needed + 1u, "%s_registry_t", map_name);
+    map_registry_type = cxgn_strdup("Config");
+    if (!map_registry_type) {
+        cxgn_error_set(err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
+        return false;
     }
 
     char** ordered_paths = (char**)calloc(batch->count, sizeof(char*));
@@ -431,7 +423,7 @@ bool cxgn_batch_generate_detailed(cxgn_batch* batch,
         return false;
     }
     for (size_t i = 0; i < batch->count; i++) ordered_paths[i] = batch->yaml_paths[i];
-    qsort(ordered_paths, batch->count, sizeof(char*), cmp_path_str);
+    qsort(ordered_paths, batch->count, sizeof(char*), cxgn_batch_cmp_path_str);
 
     result->entries = (cxgn_batch_entry_result*)calloc(batch->count, sizeof(*result->entries));
     if (!result->entries) {
@@ -454,38 +446,38 @@ bool cxgn_batch_generate_detailed(cxgn_batch* batch,
             goto fail;
         }
 
-        entry->key = derive_key(ordered_paths[i], map_root, &entry_err);
+        entry->key = cxgn_derive_key(ordered_paths[i], map_root, &entry_err);
         if (!entry->key) {
             result->failure_count++;
-            batch_entry_set_error(entry, &entry_err);
+            cxgn_batch_entry_set_error(entry, &entry_err);
             if (!continue_on_error) {
-                if (!batch_error_clone(err, &entry->error)) goto fail;
+                if (!cxgn_batch_error_clone(err, &entry->error)) goto fail;
                 goto fail;
             }
             continue;
         }
 
         {
-            char* base_identifier = key_to_ident(entry->key);
+            char* base_identifier = cxgn_key_to_ident(entry->key);
             int needed;
             if (!base_identifier) {
                 cxgn_error_set(&entry_err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
                 result->failure_count++;
-                batch_entry_set_error(entry, &entry_err);
+                cxgn_batch_entry_set_error(entry, &entry_err);
                 if (!continue_on_error) {
-                    if (!batch_error_clone(err, &entry->error)) goto fail;
+                    if (!cxgn_batch_error_clone(err, &entry->error)) goto fail;
                     goto fail;
                 }
                 continue;
             }
-            needed = snprintf(NULL, 0, "%s_%s", map_name, base_identifier);
+            needed = snprintf(NULL, 0, "%s", base_identifier);
             if (needed < 0) {
                 free(base_identifier);
                 cxgn_error_set(&entry_err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
                 result->failure_count++;
-                batch_entry_set_error(entry, &entry_err);
+                cxgn_batch_entry_set_error(entry, &entry_err);
                 if (!continue_on_error) {
-                    if (!batch_error_clone(err, &entry->error)) goto fail;
+                    if (!cxgn_batch_error_clone(err, &entry->error)) goto fail;
                     goto fail;
                 }
                 continue;
@@ -495,14 +487,14 @@ bool cxgn_batch_generate_detailed(cxgn_batch* batch,
                 free(base_identifier);
                 cxgn_error_set(&entry_err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
                 result->failure_count++;
-                batch_entry_set_error(entry, &entry_err);
+                cxgn_batch_entry_set_error(entry, &entry_err);
                 if (!continue_on_error) {
-                    if (!batch_error_clone(err, &entry->error)) goto fail;
+                    if (!cxgn_batch_error_clone(err, &entry->error)) goto fail;
                     goto fail;
                 }
                 continue;
             }
-            snprintf(entry->identifier, (size_t)needed + 1u, "%s_%s", map_name, base_identifier);
+            snprintf(entry->identifier, (size_t)needed + 1u, "%s", base_identifier);
             free(base_identifier);
         }
 
@@ -517,9 +509,9 @@ bool cxgn_batch_generate_detailed(cxgn_batch* batch,
                 cxgn_error_set(&entry_err, CXGN_ERR_PARSE_ERROR,
                                "Key collision: use --map-root to disambiguate");
                 result->failure_count++;
-                batch_entry_set_error(entry, &entry_err);
+                cxgn_batch_entry_set_error(entry, &entry_err);
                 if (!continue_on_error) {
-                    if (!batch_error_clone(err, &entry->error)) goto fail;
+                    if (!cxgn_batch_error_clone(err, &entry->error)) goto fail;
                     goto fail;
                 }
                 goto next_entry;
@@ -531,9 +523,9 @@ bool cxgn_batch_generate_detailed(cxgn_batch* batch,
         if (!pfx) {
             cxgn_error_set(&entry_err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
             result->failure_count++;
-            batch_entry_set_error(entry, &entry_err);
+            cxgn_batch_entry_set_error(entry, &entry_err);
             if (!continue_on_error) {
-                if (!batch_error_clone(err, &entry->error)) goto fail;
+                if (!cxgn_batch_error_clone(err, &entry->error)) goto fail;
                 goto fail;
             }
             continue;
@@ -546,9 +538,9 @@ bool cxgn_batch_generate_detailed(cxgn_batch* batch,
         cxgn_generator_set_symbol_prefix(batch->gen, NULL);
         if (!entry->output) {
             result->failure_count++;
-            batch_entry_set_error(entry, &entry_err);
+            cxgn_batch_entry_set_error(entry, &entry_err);
             if (!continue_on_error) {
-                if (!batch_error_clone(err, &entry->error)) goto fail;
+                if (!cxgn_batch_error_clone(err, &entry->error)) goto fail;
                 goto fail;
             }
             continue;
@@ -565,7 +557,7 @@ next_entry:
         if (result->failure_count > 0) {
             for (size_t i = 0; i < result->entry_count; i++) {
                 if (result->entries[i].error.code != CXGN_OK) {
-                    batch_error_clone(err, &result->entries[i].error);
+                    cxgn_batch_error_clone(err, &result->entries[i].error);
                     break;
                 }
             }
@@ -576,7 +568,7 @@ next_entry:
         return false;
     }
 
-    result->combined_output = bout_new();
+    result->combined_output = cxgn_batch_output_new();
     if (!result->combined_output) {
         free(ordered_paths);
         cxgn_error_set(err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
@@ -584,39 +576,39 @@ next_entry:
     }
 
     if (saved_helpers) {
-        bout_appendf(result->combined_output, "#include <%s>\n\n", saved_helpers);
+        cxgn_batch_output_appendf(result->combined_output, "#include <%s>\n\n", saved_helpers);
     }
     for (size_t i = 0; i < result->entry_count; i++) {
         const cxgn_batch_entry_result* entry = &result->entries[i];
         if (!entry->output) continue;
-        bout_appendf(result->combined_output, "/* -- Entry: %s -- Source: %s */\n",
+        cxgn_batch_output_appendf(result->combined_output, "/* -- Entry: %s -- Source: %s */\n",
                      entry->key, entry->yaml_path);
-        bout_append(result->combined_output, cxgn_output_get_code(entry->output));
-        bout_append(result->combined_output, "\n");
+        cxgn_batch_output_append(result->combined_output, cxgn_output_get_code(entry->output));
+        cxgn_batch_output_append(result->combined_output, "\n");
     }
 
-    bout_append(result->combined_output, "\n/* == Config registry == */\n");
-    bout_appendf(result->combined_output, "typedef struct {\n");
-    bout_appendf(result->combined_output, "    const char* key;\n");
-    bout_appendf(result->combined_output, "    const %s* config;\n", struct_name);
-    bout_appendf(result->combined_output, "} %s;\n\n", map_type);
-    bout_appendf(result->combined_output, "typedef struct %s {\n", map_registry_type);
-    bout_appendf(result->combined_output, "    const %s* entries;\n", map_type);
-    bout_appendf(result->combined_output, "    size_t count;\n");
-    bout_appendf(result->combined_output, "} %s;\n\n", map_registry_type);
+    cxgn_batch_output_append(result->combined_output, "\n/* == Config registry == */\n");
+    cxgn_batch_output_appendf(result->combined_output, "typedef struct {\n");
+    cxgn_batch_output_appendf(result->combined_output, "    const char* key;\n");
+    cxgn_batch_output_appendf(result->combined_output, "    const %s* config;\n", struct_name);
+    cxgn_batch_output_appendf(result->combined_output, "} %s;\n\n", map_type);
+    cxgn_batch_output_appendf(result->combined_output, "typedef struct %s {\n", map_registry_type);
+    cxgn_batch_output_appendf(result->combined_output, "    const %s* entries;\n", map_type);
+    cxgn_batch_output_appendf(result->combined_output, "    size_t count;\n");
+    cxgn_batch_output_appendf(result->combined_output, "} %s;\n\n", map_registry_type);
 
-    bout_appendf(result->combined_output, "static const %s _%s_entries[] = {\n", map_type, map_name);
+    cxgn_batch_output_appendf(result->combined_output, "static const %s _%s_entries[] = {\n", map_type, map_name);
     for (size_t i = 0; i < result->entry_count; i++) {
         const cxgn_batch_entry_result* entry = &result->entries[i];
         if (!entry->output) continue;
-        bout_appendf(result->combined_output, "    {\"%s\", &%s_config},\n",
+        cxgn_batch_output_appendf(result->combined_output, "    {\"%s\", &%s_config},\n",
                      entry->key, entry->identifier);
     }
-    bout_append(result->combined_output, "};\n\n");
-    bout_appendf(result->combined_output, "static const %s %s = {\n", map_registry_type, map_name);
-    bout_appendf(result->combined_output, "    .entries = _%s_entries,\n", map_name);
-    bout_appendf(result->combined_output, "    .count = %zu,\n", result->success_count);
-    bout_append(result->combined_output, "};\n");
+    cxgn_batch_output_append(result->combined_output, "};\n\n");
+    cxgn_batch_output_appendf(result->combined_output, "static const %s %s = {\n", map_registry_type, map_name);
+    cxgn_batch_output_appendf(result->combined_output, "    .entries = _%s_entries,\n", map_name);
+    cxgn_batch_output_appendf(result->combined_output, "    .count = %zu,\n", result->success_count);
+    cxgn_batch_output_append(result->combined_output, "};\n");
 
     free(map_registry_type);
     free(ordered_paths);

@@ -5,7 +5,7 @@
 
 #include "internal.h"
 
-static void set_feature_disabled(cxgn_error* err) {
+static void cxgn_set_feature_disabled(cxgn_error* err) {
     cxgn_error_init(err);
     cxgn_error_set(err, CXGN_ERR_FEATURE_DISABLED,
                    "YAML support is not available in this build");
@@ -141,7 +141,7 @@ bool cxgn_struct_parser_parse_text(cxgn_struct_parser* parser,
     (void)parser;
     (void)header_text;
     (void)source_name;
-    set_feature_disabled(err);
+    cxgn_set_feature_disabled(err);
     return false;
 }
 
@@ -150,7 +150,7 @@ cxgn_output* cxgn_generate(cxgn_generator* gen, const char* yaml_path,
     (void)gen;
     (void)yaml_path;
     (void)header_path;
-    set_feature_disabled(err);
+    cxgn_set_feature_disabled(err);
     return NULL;
 }
 
@@ -161,7 +161,7 @@ cxgn_output* cxgn_generate_from_document(cxgn_generator* gen, const cxgn_documen
     (void)doc;
     (void)yaml_virtual_path;
     (void)header_path;
-    set_feature_disabled(err);
+    cxgn_set_feature_disabled(err);
     return NULL;
 }
 
@@ -172,7 +172,7 @@ cxgn_output* cxgn_generate_from_yaml_text(cxgn_generator* gen, const char* yaml_
     (void)yaml_text;
     (void)yaml_virtual_path;
     (void)header_path;
-    set_feature_disabled(err);
+    cxgn_set_feature_disabled(err);
     return NULL;
 }
 
@@ -236,14 +236,14 @@ void cxgn_batch_result_clear(cxgn_batch_result* result) {
 bool cxgn_batch_add_file(cxgn_batch* batch, const char* yaml_path, cxgn_error* err) {
     (void)batch;
     (void)yaml_path;
-    set_feature_disabled(err);
+    cxgn_set_feature_disabled(err);
     return false;
 }
 
 bool cxgn_batch_add_glob(cxgn_batch* batch, const char* pattern, cxgn_error* err) {
     (void)batch;
     (void)pattern;
-    set_feature_disabled(err);
+    cxgn_set_feature_disabled(err);
     return false;
 }
 
@@ -254,7 +254,7 @@ cxgn_output* cxgn_batch_generate(cxgn_batch* batch,
     (void)batch;
     (void)header_path;
     (void)options;
-    set_feature_disabled(err);
+    cxgn_set_feature_disabled(err);
     return NULL;
 }
 
@@ -267,6 +267,6 @@ bool cxgn_batch_generate_detailed(cxgn_batch* batch,
     (void)header_path;
     (void)options;
     if (result) cxgn_batch_result_clear(result);
-    set_feature_disabled(err);
+    cxgn_set_feature_disabled(err);
     return false;
 }

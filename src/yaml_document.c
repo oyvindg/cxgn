@@ -22,14 +22,14 @@ typedef enum {
     YAML_SCALAR_STRING
 } yaml_scalar_kind;
 
-static void set_node_location(cxgn_node* node, const yaml_node_t* yaml_node) {
+static void cxgn_set_node_location(cxgn_node* node, const yaml_node_t* yaml_node) {
     if (!node || !yaml_node) return;
     cxgn_node_set_location(node,
                            (size_t)yaml_node->start_mark.line + 1,
                            (size_t)yaml_node->start_mark.column + 1);
 }
 
-static bool is_false_like(const char* value) {
+static bool cxgn_is_false_like(const char* value) {
     return strcmp(value, "false") == 0 ||
            strcmp(value, "False") == 0 ||
            strcmp(value, "FALSE") == 0 ||
@@ -41,7 +41,7 @@ static bool is_false_like(const char* value) {
            strcmp(value, "OFF") == 0;
 }
 
-static yaml_scalar_kind detect_plain_scalar_kind(const char* value) {
+static yaml_scalar_kind cxgn_detect_plain_scalar_kind(const char* value) {
     if (!value || !*value) return YAML_SCALAR_NULL;
     if (strcmp(value, "null") == 0 || strcmp(value, "~") == 0) return YAML_SCALAR_NULL;
     if (strcmp(value, "true") == 0 || strcmp(value, "false") == 0) return YAML_SCALAR_BOOL;
@@ -70,11 +70,11 @@ static yaml_scalar_kind detect_plain_scalar_kind(const char* value) {
     return has_dot ? YAML_SCALAR_FLOAT : YAML_SCALAR_INT;
 }
 
-static void set_oom(cxgn_error* err) {
+static void cxgn_set_oom(cxgn_error* err) {
     cxgn_error_set(err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
 }
 
-static char* yaml_vasprintf(const char* fmt, va_list args) {
+static char* cxgn_yaml_vasprintf(const char* fmt, va_list args) {
     va_list args_copy;
     va_copy(args_copy, args);
     const int needed = vsnprintf(NULL, 0, fmt, args_copy);
@@ -87,7 +87,7 @@ static char* yaml_vasprintf(const char* fmt, va_list args) {
     return buf;
 }
 
-static void set_owned_error(cxgn_error* err,
+static void cxgn_set_owned_error(cxgn_error* err,
                             cxgn_error_code code,
                             char* message,
                             char* path,
@@ -108,7 +108,7 @@ static void set_owned_error(cxgn_error* err,
     err->needs_free = true;
 }
 
-static void set_source_error(cxgn_error* err,
+static void cxgn_set_source_error(cxgn_error* err,
                              cxgn_error_code code,
                              const char* source_name,
                              size_t line,
@@ -119,10 +119,10 @@ static void set_source_error(cxgn_error* err,
     char* path = NULL;
 
     va_start(args, fmt);
-    message = yaml_vasprintf(fmt, args);
+    message = cxgn_yaml_vasprintf(fmt, args);
     va_end(args);
     if (!message) {
-        set_oom(err);
+        cxgn_set_oom(err);
         return;
     }
 
@@ -130,15 +130,15 @@ static void set_source_error(cxgn_error* err,
         path = cxgn_strdup(source_name);
         if (!path) {
             free(message);
-            set_oom(err);
+            cxgn_set_oom(err);
             return;
         }
     }
 
-    set_owned_error(err, code, message, path, line, column);
+    cxgn_set_owned_error(err, code, message, path, line, column);
 }
 
-static void set_yaml_parser_error(cxgn_error* err,
+static void cxgn_set_yaml_parser_error(cxgn_error* err,
                                   const char* source_name,
                                   const yaml_parser_t* parser) {
     size_t line = 0;
@@ -154,20 +154,20 @@ static void set_yaml_parser_error(cxgn_error* err,
     }
 
     if (context && context[0]) {
-        set_source_error(err, CXGN_ERR_YAML_ERROR, source_name, line, column,
+        cxgn_set_source_error(err, CXGN_ERR_YAML_ERROR, source_name, line, column,
                          "%s: %s", context, problem);
         return;
     }
 
-    set_source_error(err, CXGN_ERR_YAML_ERROR, source_name, line, column, "%s", problem);
+    cxgn_set_source_error(err, CXGN_ERR_YAML_ERROR, source_name, line, column, "%s", problem);
 }
 
-static cxgn_node* convert_yaml_node(yaml_document_t* doc,
+static cxgn_node* cxgn_convert_yaml_node(yaml_document_t* doc,
                                     yaml_node_t* yaml_node,
                                     const char* source_name,
                                     cxgn_error* err);
 
-static cxgn_node* convert_scalar_node(yaml_node_t* yaml_node,
+static cxgn_node* cxgn_convert_scalar_node(yaml_node_t* yaml_node,
                                       const char* source_name,
                                       cxgn_error* err) {
     const char* value = (const char*)yaml_node->data.scalar.value;
@@ -180,13 +180,13 @@ static cxgn_node* convert_scalar_node(yaml_node_t* yaml_node,
         else if (tag && strcmp(tag, yaml_tag_bool) == 0) kind = YAML_SCALAR_BOOL;
         else if (tag && strcmp(tag, yaml_tag_int) == 0) kind = YAML_SCALAR_INT;
         else if (tag && strcmp(tag, yaml_tag_float) == 0) kind = YAML_SCALAR_FLOAT;
-        else kind = detect_plain_scalar_kind(value);
+        else kind = cxgn_detect_plain_scalar_kind(value);
     }
 
     if (kind == YAML_SCALAR_NULL) {
         node = cxgn_node_new_null();
     } else if (kind == YAML_SCALAR_BOOL) {
-        node = cxgn_node_new_bool(!is_false_like(value));
+        node = cxgn_node_new_bool(!cxgn_is_false_like(value));
     } else if (kind == YAML_SCALAR_INT) {
         char* end = NULL;
         errno = 0;
@@ -211,35 +211,35 @@ static cxgn_node* convert_scalar_node(yaml_node_t* yaml_node,
 
     if (!node) {
         (void)source_name;
-        set_oom(err);
+        cxgn_set_oom(err);
         return NULL;
     }
 
-    set_node_location(node, yaml_node);
+    cxgn_set_node_location(node, yaml_node);
     if (!cxgn_node_set_raw_scalar_text(node, value, strlen(value))) {
         cxgn_node_free(node);
-        set_oom(err);
+        cxgn_set_oom(err);
         return NULL;
     }
     return node;
 }
 
-static cxgn_node* convert_sequence_node(yaml_document_t* doc,
+static cxgn_node* cxgn_convert_sequence_node(yaml_document_t* doc,
                                         yaml_node_t* yaml_node,
                                         const char* source_name,
                                         cxgn_error* err) {
     cxgn_node* node = cxgn_node_new_array();
     if (!node) {
-        set_oom(err);
+        cxgn_set_oom(err);
         return NULL;
     }
 
-    set_node_location(node, yaml_node);
+    cxgn_set_node_location(node, yaml_node);
     for (yaml_node_item_t* item = yaml_node->data.sequence.items.start;
          item < yaml_node->data.sequence.items.top;
          item++) {
         yaml_node_t* child_yaml = yaml_document_get_node(doc, *item);
-        cxgn_node* child = child_yaml ? convert_yaml_node(doc, child_yaml, source_name, err) : NULL;
+        cxgn_node* child = child_yaml ? cxgn_convert_yaml_node(doc, child_yaml, source_name, err) : NULL;
         if (!child) {
             cxgn_node_free(node);
             return NULL;
@@ -247,7 +247,7 @@ static cxgn_node* convert_sequence_node(yaml_document_t* doc,
         if (!cxgn_node_array_append(node, child)) {
             cxgn_node_free(child);
             cxgn_node_free(node);
-            set_oom(err);
+            cxgn_set_oom(err);
             return NULL;
         }
     }
@@ -255,17 +255,17 @@ static cxgn_node* convert_sequence_node(yaml_document_t* doc,
     return node;
 }
 
-static cxgn_node* convert_mapping_node(yaml_document_t* doc,
+static cxgn_node* cxgn_convert_mapping_node(yaml_document_t* doc,
                                        yaml_node_t* yaml_node,
                                        const char* source_name,
                                        cxgn_error* err) {
     cxgn_node* node = cxgn_node_new_object();
     if (!node) {
-        set_oom(err);
+        cxgn_set_oom(err);
         return NULL;
     }
 
-    set_node_location(node, yaml_node);
+    cxgn_set_node_location(node, yaml_node);
     for (yaml_node_pair_t* pair = yaml_node->data.mapping.pairs.start;
          pair < yaml_node->data.mapping.pairs.top;
          pair++) {
@@ -279,12 +279,12 @@ static cxgn_node* convert_mapping_node(yaml_document_t* doc,
                 column = (size_t)key_yaml->start_mark.column + 1;
             }
             cxgn_node_free(node);
-            set_source_error(err, CXGN_ERR_PARSE_ERROR, source_name, line, column,
+            cxgn_set_source_error(err, CXGN_ERR_PARSE_ERROR, source_name, line, column,
                              "Only scalar mapping keys are supported");
             return NULL;
         }
 
-        cxgn_node* value = convert_yaml_node(doc, value_yaml, source_name, err);
+        cxgn_node* value = cxgn_convert_yaml_node(doc, value_yaml, source_name, err);
         if (!value) {
             cxgn_node_free(node);
             return NULL;
@@ -297,7 +297,7 @@ static cxgn_node* convert_mapping_node(yaml_document_t* doc,
                                      (size_t)key_yaml->start_mark.column + 1)) {
             cxgn_node_free(value);
             cxgn_node_free(node);
-            set_oom(err);
+            cxgn_set_oom(err);
             return NULL;
         }
     }
@@ -305,24 +305,24 @@ static cxgn_node* convert_mapping_node(yaml_document_t* doc,
     return node;
 }
 
-static cxgn_node* convert_yaml_node(yaml_document_t* doc,
+static cxgn_node* cxgn_convert_yaml_node(yaml_document_t* doc,
                                     yaml_node_t* yaml_node,
                                     const char* source_name,
                                     cxgn_error* err) {
     if (!yaml_node) {
-        set_source_error(err, CXGN_ERR_PARSE_ERROR, source_name, 0, 0, "Missing YAML node");
+        cxgn_set_source_error(err, CXGN_ERR_PARSE_ERROR, source_name, 0, 0, "Missing YAML node");
         return NULL;
     }
 
     switch (yaml_node->type) {
         case YAML_SCALAR_NODE:
-            return convert_scalar_node(yaml_node, source_name, err);
+            return cxgn_convert_scalar_node(yaml_node, source_name, err);
         case YAML_SEQUENCE_NODE:
-            return convert_sequence_node(doc, yaml_node, source_name, err);
+            return cxgn_convert_sequence_node(doc, yaml_node, source_name, err);
         case YAML_MAPPING_NODE:
-            return convert_mapping_node(doc, yaml_node, source_name, err);
+            return cxgn_convert_mapping_node(doc, yaml_node, source_name, err);
         default:
-            set_source_error(err, CXGN_ERR_PARSE_ERROR, source_name,
+            cxgn_set_source_error(err, CXGN_ERR_PARSE_ERROR, source_name,
                              (size_t)yaml_node->start_mark.line + 1,
                              (size_t)yaml_node->start_mark.column + 1,
                              "Unsupported YAML node type");
@@ -330,12 +330,12 @@ static cxgn_node* convert_yaml_node(yaml_document_t* doc,
     }
 }
 
-static cxgn_document* document_from_loaded_yaml(yaml_document_t* yaml_doc,
+static cxgn_document* cxgn_document_from_loaded_yaml(yaml_document_t* yaml_doc,
                                                 const char* source_name,
                                                 cxgn_error* err) {
     cxgn_document* doc = cxgn_document_new(source_name);
     if (!doc) {
-        set_oom(err);
+        cxgn_set_oom(err);
         return NULL;
     }
 
@@ -344,7 +344,7 @@ static cxgn_document* document_from_loaded_yaml(yaml_document_t* yaml_doc,
         return doc;
     }
 
-    cxgn_node* root = convert_yaml_node(yaml_doc, root_yaml, source_name, err);
+    cxgn_node* root = cxgn_convert_yaml_node(yaml_doc, root_yaml, source_name, err);
     if (!root) {
         cxgn_document_free(doc);
         return NULL;
@@ -353,7 +353,7 @@ static cxgn_document* document_from_loaded_yaml(yaml_document_t* yaml_doc,
     if (!cxgn_document_set_root(doc, root)) {
         cxgn_node_free(root);
         cxgn_document_free(doc);
-        set_oom(err);
+        cxgn_set_oom(err);
         return NULL;
     }
 
@@ -377,20 +377,20 @@ cxgn_document* cxgn_document_from_yaml_file(const char* yaml_path, cxgn_error* e
     yaml_document_t yaml_doc;
     if (!yaml_parser_initialize(&parser)) {
         fclose(f);
-        set_source_error(err, CXGN_ERR_YAML_ERROR, yaml_path, 0, 0,
+        cxgn_set_source_error(err, CXGN_ERR_YAML_ERROR, yaml_path, 0, 0,
                          "Failed to initialize YAML parser");
         return NULL;
     }
 
     yaml_parser_set_input_file(&parser, f);
     if (!yaml_parser_load(&parser, &yaml_doc)) {
-        set_yaml_parser_error(err, yaml_path, &parser);
+        cxgn_set_yaml_parser_error(err, yaml_path, &parser);
         yaml_parser_delete(&parser);
         fclose(f);
         return NULL;
     }
 
-    cxgn_document* doc = document_from_loaded_yaml(&yaml_doc, yaml_path, err);
+    cxgn_document* doc = cxgn_document_from_loaded_yaml(&yaml_doc, yaml_path, err);
     yaml_document_delete(&yaml_doc);
     yaml_parser_delete(&parser);
     fclose(f);
@@ -410,7 +410,7 @@ cxgn_document* cxgn_document_from_yaml_text(const char* yaml_text,
     yaml_document_t yaml_doc;
     if (!yaml_parser_initialize(&parser)) {
         const char* effective_name = (source_name && source_name[0]) ? source_name : "<in-memory-yaml>";
-        set_source_error(err, CXGN_ERR_YAML_ERROR, effective_name, 0, 0,
+        cxgn_set_source_error(err, CXGN_ERR_YAML_ERROR, effective_name, 0, 0,
                          "Failed to initialize YAML parser");
         return NULL;
     }
@@ -418,13 +418,13 @@ cxgn_document* cxgn_document_from_yaml_text(const char* yaml_text,
     yaml_parser_set_input_string(&parser, (const unsigned char*)yaml_text, strlen(yaml_text));
     if (!yaml_parser_load(&parser, &yaml_doc)) {
         const char* effective_name = (source_name && source_name[0]) ? source_name : "<in-memory-yaml>";
-        set_yaml_parser_error(err, effective_name, &parser);
+        cxgn_set_yaml_parser_error(err, effective_name, &parser);
         yaml_parser_delete(&parser);
         return NULL;
     }
 
     const char* effective_name = (source_name && source_name[0]) ? source_name : "<in-memory-yaml>";
-    cxgn_document* doc = document_from_loaded_yaml(&yaml_doc, effective_name, err);
+    cxgn_document* doc = cxgn_document_from_loaded_yaml(&yaml_doc, effective_name, err);
     yaml_document_delete(&yaml_doc);
     yaml_parser_delete(&parser);
     return doc;

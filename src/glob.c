@@ -22,7 +22,7 @@
  * Internal: path_list_t helpers (type defined in internal.h)
  * ═══════════════════════════════════════════════════════════════════════════ */
 
-static bool pl_push(path_list_t* pl, const char* path) {
+static bool cxgn_path_list_push(path_list_t* pl, const char* path) {
     if (pl->count >= pl->capacity) {
         size_t new_cap = pl->capacity ? pl->capacity * 2 : 16;
         char** next = (char**)realloc(pl->paths, new_cap * sizeof(char*));
@@ -36,11 +36,11 @@ static bool pl_push(path_list_t* pl, const char* path) {
     return true;
 }
 
-static int cmp_str(const void* a, const void* b) {
+static int cxgn_cmp_str(const void* a, const void* b) {
     return strcmp(*(const char* const*)a, *(const char* const*)b);
 }
 
-static bool pl_contains(const path_list_t* pl, const char* path) {
+static bool cxgn_path_list_contains(const path_list_t* pl, const char* path) {
     for (size_t i = 0; i < pl->count; i++) {
         if (strcmp(pl->paths[i], path) == 0) return true;
     }
@@ -51,7 +51,7 @@ static bool pl_contains(const path_list_t* pl, const char* path) {
  * Internal: pattern helpers
  * ═══════════════════════════════════════════════════════════════════════════ */
 
-static bool has_glob_chars(const char* s) {
+static bool cxgn_has_glob_chars(const char* s) {
     for (; *s; s++) {
         if (*s == '*' || *s == '?' || *s == '[') return true;
     }
@@ -67,9 +67,9 @@ static bool has_glob_chars(const char* s) {
  * @param pattern Input pattern string
  * @param out_count Number of segments returned
  * @return Heap-allocated array of heap-allocated strings, or NULL on OOM.
- *         Caller must call free_segments() on the result.
+ *         Caller must call cxgn_free_segments() on the result.
  */
-static char** split_segments(const char* pattern, size_t* out_count) {
+static char** cxgn_split_segments(const char* pattern, size_t* out_count) {
     size_t n = 1;
     for (const char* p = pattern; *p; p++) {
         if (*p == '/') n++;
@@ -99,7 +99,7 @@ static char** split_segments(const char* pattern, size_t* out_count) {
     return segs;
 }
 
-static void free_segments(char** segs, size_t n) {
+static void cxgn_free_segments(char** segs, size_t n) {
     if (!segs) return;
     for (size_t i = 0; i < n; i++) free(segs[i]);
     free(segs);
@@ -110,7 +110,7 @@ static void free_segments(char** segs, size_t n) {
  * ═══════════════════════════════════════════════════════════════════════════ */
 
 /**
- * @brief Recursively collect files matching segs[si..nseg-1] under dir.
+ * @brief Recursively cxgn_glob_collect files matching segs[si..nseg-1] under dir.
  *
  * segs[si] equal to "**" is the recursive wildcard: it matches zero or more
  * directory levels by trying the rest of the pattern in the current directory
@@ -122,7 +122,7 @@ static void free_segments(char** segs, size_t n) {
  * @param si    Index of the segment to match at this level
  * @param out   Result accumulator
  */
-static void collect(const char* dir, char** segs, size_t nseg, size_t si,
+static void cxgn_glob_collect(const char* dir, char** segs, size_t nseg, size_t si,
                     path_list_t* out) {
     if (si >= nseg) return;
 
@@ -133,7 +133,7 @@ static void collect(const char* dir, char** segs, size_t nseg, size_t si,
     if (is_doublestar) {
         /* Zero levels: try matching the rest of the pattern from this dir */
         if (!is_last) {
-            collect(dir, segs, nseg, si + 1, out);
+            cxgn_glob_collect(dir, segs, nseg, si + 1, out);
         }
         /* One or more levels: descend into each subdirectory */
         DIR* d = opendir(dir);
@@ -147,9 +147,9 @@ static void collect(const char* dir, char** segs, size_t nseg, size_t si,
             if (stat(child, &st) != 0) continue;
             if (S_ISDIR(st.st_mode)) {
                 /* Try rest of pattern from this subdir */
-                if (!is_last) collect(child, segs, nseg, si + 1, out);
+                if (!is_last) cxgn_glob_collect(child, segs, nseg, si + 1, out);
                 /* Re-apply doublestar one level deeper */
-                collect(child, segs, nseg, si, out);
+                cxgn_glob_collect(child, segs, nseg, si, out);
             }
         }
         closedir(d);
@@ -168,12 +168,12 @@ static void collect(const char* dir, char** segs, size_t nseg, size_t si,
             if (stat(child, &st) != 0) continue;
 
             if (is_last) {
-                if (S_ISREG(st.st_mode) && !pl_contains(out, child)) {
-                    pl_push(out, child);
+                if (S_ISREG(st.st_mode) && !cxgn_path_list_contains(out, child)) {
+                    cxgn_path_list_push(out, child);
                 }
             } else {
                 if (S_ISDIR(st.st_mode)) {
-                    collect(child, segs, nseg, si + 1, out);
+                    cxgn_glob_collect(child, segs, nseg, si + 1, out);
                 }
             }
         }
@@ -192,10 +192,10 @@ bool cxgn_glob_expand(const char* pattern, path_list_t* out, cxgn_error* err) {
     }
 
     /* Fast path: no glob chars — treat as literal path */
-    if (!has_glob_chars(pattern) && !strstr(pattern, "**")) {
+    if (!cxgn_has_glob_chars(pattern) && !strstr(pattern, "**")) {
         struct stat st;
         if (stat(pattern, &st) == 0 && S_ISREG(st.st_mode)) {
-            if (!pl_contains(out, pattern) && !pl_push(out, pattern)) {
+            if (!cxgn_path_list_contains(out, pattern) && !cxgn_path_list_push(out, pattern)) {
                 cxgn_error_set(err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
                 return false;
             }
@@ -204,7 +204,7 @@ bool cxgn_glob_expand(const char* pattern, path_list_t* out, cxgn_error* err) {
     }
 
     size_t nseg = 0;
-    char** segs = split_segments(pattern, &nseg);
+    char** segs = cxgn_split_segments(pattern, &nseg);
     if (!segs) {
         cxgn_error_set(err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
         return false;
@@ -213,7 +213,7 @@ bool cxgn_glob_expand(const char* pattern, path_list_t* out, cxgn_error* err) {
     /* Determine fixed base directory (leading segments without glob chars) */
     size_t first_glob = nseg;
     for (size_t i = 0; i < nseg; i++) {
-        if (has_glob_chars(segs[i]) || strcmp(segs[i], "**") == 0) {
+        if (cxgn_has_glob_chars(segs[i]) || strcmp(segs[i], "**") == 0) {
             first_glob = i;
             break;
         }
@@ -252,13 +252,13 @@ bool cxgn_glob_expand(const char* pattern, path_list_t* out, cxgn_error* err) {
     }
 
     size_t prev_count = out->count;
-    collect(base, segs, nseg, first_glob, out);
-    free_segments(segs, nseg);
+    cxgn_glob_collect(base, segs, nseg, first_glob, out);
+    cxgn_free_segments(segs, nseg);
 
     /* Sort the newly added entries for deterministic output */
     if (out->count > prev_count) {
         qsort(out->paths + prev_count, out->count - prev_count,
-              sizeof(char*), cmp_str);
+              sizeof(char*), cxgn_cmp_str);
     }
 
     return true;

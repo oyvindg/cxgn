@@ -45,23 +45,23 @@ typedef struct {
     bool        verbose;
 } cli_args;
 
-static int run_single(const cli_args* args,
+static int cxgn_cli_run_single(const cli_args* args,
                       cxgn_generator* gen,
                       cxgn_struct_parser* parser,
                       cxgn_string_utils* utils);
-static int run_batch(const cli_args* args,
+static int cxgn_cli_run_batch(const cli_args* args,
                      cxgn_generator* gen,
                      cxgn_struct_parser* parser,
                      cxgn_string_utils* utils);
-static void cli_diagnostic_sink(cxgn_diagnostic_level level,
+static void cxgn_cli_diagnostic_sink(cxgn_diagnostic_level level,
                                 const cxgn_error* diagnostic,
                                 void* userdata);
 
-static void cli_args_free(cli_args* args) {
+static void cxgn_cli_args_free(cli_args* args) {
     free(args->yaml_patterns);
 }
 
-static bool cli_args_add_yaml(cli_args* args, const char* val) {
+static bool cxgn_cli_args_add_yaml(cli_args* args, const char* val) {
     if (args->yaml_count >= args->yaml_capacity) {
         size_t new_cap = args->yaml_capacity ? args->yaml_capacity * 2 : 4;
         const char** next = (const char**)realloc(args->yaml_patterns,
@@ -74,11 +74,11 @@ static bool cli_args_add_yaml(cli_args* args, const char* val) {
     return true;
 }
 
-static bool is_option_token(const char* arg) {
+static bool cxgn_cli_is_option_token(const char* arg) {
     return arg && arg[0] == '-' && arg[1] != '\0';
 }
 
-static char* duplicate_string(const char* value) {
+static char* cxgn_cli_duplicate_string(const char* value) {
     size_t len;
     char* copy;
     if (!value) return NULL;
@@ -89,11 +89,11 @@ static char* duplicate_string(const char* value) {
     return copy;
 }
 
-static char* path_get_directory(const char* path) {
+static char* cxgn_cli_path_get_directory(const char* path) {
     const char* last_slash;
-    if (!path || !*path) return duplicate_string(".");
+    if (!path || !*path) return cxgn_cli_duplicate_string(".");
     last_slash = strrchr(path, '/');
-    if (!last_slash) return duplicate_string(".");
+    if (!last_slash) return cxgn_cli_duplicate_string(".");
     if (last_slash == path) {
         char* root = (char*)malloc(2);
         if (!root) return NULL;
@@ -111,12 +111,12 @@ static char* path_get_directory(const char* path) {
     }
 }
 
-static char* path_join_local(const char* dir, const char* file) {
+static char* cxgn_cli_path_join_local(const char* dir, const char* file) {
     size_t dir_len;
     size_t file_len;
     char* result;
-    if (!dir || !*dir) return duplicate_string(file ? file : "");
-    if (!file || !*file) return duplicate_string(dir);
+    if (!dir || !*dir) return cxgn_cli_duplicate_string(file ? file : "");
+    if (!file || !*file) return cxgn_cli_duplicate_string(dir);
     dir_len = strlen(dir);
     file_len = strlen(file);
     result = (char*)malloc(dir_len + 1 + file_len + 1);
@@ -131,7 +131,7 @@ static char* path_join_local(const char* dir, const char* file) {
     return result;
 }
 
-static void print_usage(const char* prog) {
+static void cxgn_cli_print_usage(const char* prog) {
     fprintf(stderr,
             "Usage: %s --yaml <file|pattern> --header <file> --output <file>\n"
             "          [--yaml <file|pattern>]...\n"
@@ -156,7 +156,7 @@ static void print_usage(const char* prog) {
             prog, prog);
 }
 
-static bool parse_args(int argc, char* argv[], cli_args* args) {
+static bool cxgn_cli_parse_args(int argc, char* argv[], cli_args* args) {
     memset(args, 0, sizeof(*args));
 
     for (int i = 1; i < argc; i++) {
@@ -169,8 +169,8 @@ static bool parse_args(int argc, char* argv[], cli_args* args) {
 
         if (strcmp(a, "--yaml") == 0 || strcmp(a, "-y") == 0) {
             bool added = false;
-            while (i + 1 < argc && !is_option_token(argv[i + 1])) {
-                if (!cli_args_add_yaml(args, argv[++i])) {
+            while (i + 1 < argc && !cxgn_cli_is_option_token(argv[i + 1])) {
+                if (!cxgn_cli_args_add_yaml(args, argv[++i])) {
                     fprintf(stderr, "Error: out of memory\n"); return false;
                 }
                 added = true;
@@ -211,7 +211,7 @@ static bool parse_args(int argc, char* argv[], cli_args* args) {
         } else if (strcmp(a, "--verbose") == 0 || strcmp(a, "-v") == 0) {
             args->verbose = true;
         } else if (strcmp(a, "--help") == 0) {
-            print_usage(argv[0]);
+            cxgn_cli_print_usage(argv[0]);
             exit(0);
         } else {
             fprintf(stderr, "Error: unknown argument: %s\n", a);
@@ -236,7 +236,7 @@ static bool parse_args(int argc, char* argv[], cli_args* args) {
 }
 
 /* Returns true when a string contains glob metacharacters or "**". */
-static bool is_glob_pattern(const char* s) {
+static bool cxgn_cli_is_glob_pattern(const char* s) {
     if (strstr(s, "**")) return true;
     for (; *s; s++) {
         if (*s == '*' || *s == '?' || *s == '[') return true;
@@ -245,16 +245,16 @@ static bool is_glob_pattern(const char* s) {
 }
 
 /* Returns true when batch mode should be used (multiple files or glob). */
-static bool needs_batch(const cli_args* args) {
+static bool cxgn_cli_needs_batch(const cli_args* args) {
     if (args->yaml_count > 1) return true;
-    return is_glob_pattern(args->yaml_patterns[0]);
+    return cxgn_cli_is_glob_pattern(args->yaml_patterns[0]);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * Include guard from output path
  * ═══════════════════════════════════════════════════════════════════════════ */
 
-static char* make_include_guard(const char* output_path) {
+static char* cxgn_cli_make_include_guard(const char* output_path) {
     size_t len = strlen(output_path);
     char* guard = (char*)malloc(len + 16);
     if (!guard) return NULL;
@@ -278,15 +278,15 @@ static char* make_include_guard(const char* output_path) {
     return guard;
 }
 
-static int cmp_path_str(const void* a, const void* b) {
+static int cxgn_cli_cmp_path_str(const void* a, const void* b) {
     return strcmp(*(const char* const*)a, *(const char* const*)b);
 }
 
-static const cxgn_node* find_object_key(const cxgn_node* node, const char* key) {
+static const cxgn_node* cxgn_cli_find_object_key(const cxgn_node* node, const char* key) {
     return node ? cxgn_node_object_find(node, key, 0) : NULL;
 }
 
-static const char* node_string_value(const cxgn_node* node) {
+static const char* cxgn_cli_node_string_value(const cxgn_node* node) {
     size_t len = 0;
     const char* value;
     if (!node || cxgn_node_get_type(node) != CXGN_NODE_STRING) return NULL;
@@ -294,33 +294,33 @@ static const char* node_string_value(const cxgn_node* node) {
     return (value && len > 0) ? value : value;
 }
 
-static bool node_bool_value(const cxgn_node* node, bool default_value) {
+static bool cxgn_cli_node_bool_value(const cxgn_node* node, bool default_value) {
     bool value = false;
     if (!node) return default_value;
     if (!cxgn_node_get_bool(node, &value)) return default_value;
     return value;
 }
 
-static bool cli_args_set_yaml_copy(cli_args* args, const char* value) {
+static bool cxgn_cli_args_set_yaml_copy(cli_args* args, const char* value) {
     char* copy;
     if (!args || !value) return false;
-    copy = duplicate_string(value);
+    copy = cxgn_cli_duplicate_string(value);
     if (!copy) return false;
-    if (!cli_args_add_yaml(args, copy)) {
+    if (!cxgn_cli_args_add_yaml(args, copy)) {
         free(copy);
         return false;
     }
     return true;
 }
 
-static void cli_args_release_owned_yaml(cli_args* args) {
+static void cxgn_cli_args_release_owned_yaml(cli_args* args) {
     if (!args) return;
     for (size_t i = 0; i < args->yaml_count; i++) {
         free((char*)args->yaml_patterns[i]);
     }
 }
 
-static int execute_job(const cli_args* args) {
+static int cxgn_cli_execute_job(const cli_args* args) {
     int result;
     cxgn_error err = {0};
     cxgn_string_utils* utils;
@@ -364,15 +364,15 @@ static int execute_job(const cli_args* args) {
 
     cxgn_validation_options_init(&validation);
     validation.strict_mode = args->strict;
-    validation.diagnostic_fn = cli_diagnostic_sink;
+    validation.diagnostic_fn = cxgn_cli_diagnostic_sink;
     cxgn_generator_set_validation_options(gen, &validation);
     if (args->root_struct && args->root_struct[0] != '\0') {
         cxgn_generator_set_root_struct(gen, args->root_struct);
     }
 
-    result = needs_batch(args)
-        ? run_batch(args, gen, parser, utils)
-        : run_single(args, gen, parser, utils);
+    result = cxgn_cli_needs_batch(args)
+        ? cxgn_cli_run_batch(args, gen, parser, utils)
+        : cxgn_cli_run_single(args, gen, parser, utils);
 
     cxgn_generator_free(gen);
     cxgn_struct_parser_free(parser);
@@ -380,22 +380,22 @@ static int execute_job(const cli_args* args) {
     return result;
 }
 
-static char* resolve_plan_path(const char* plan_dir, const char* value) {
+static char* cxgn_cli_resolve_plan_path(const char* plan_dir, const char* value) {
     if (!value) return NULL;
-    if (value[0] == '/') return duplicate_string(value);
-    return path_join_local(plan_dir ? plan_dir : ".", value);
+    if (value[0] == '/') return cxgn_cli_duplicate_string(value);
+    return cxgn_cli_path_join_local(plan_dir ? plan_dir : ".", value);
 }
 
-static bool plan_job_collect_yaml(cli_args* job,
+static bool cxgn_cli_plan_job_collect_yaml(cli_args* job,
                                   const char* plan_dir,
                                   const cxgn_node* yaml_node) {
     size_t count;
     if (!job || !yaml_node) return false;
 
     if (cxgn_node_get_type(yaml_node) == CXGN_NODE_STRING) {
-        char* resolved = resolve_plan_path(plan_dir, node_string_value(yaml_node));
+        char* resolved = cxgn_cli_resolve_plan_path(plan_dir, cxgn_cli_node_string_value(yaml_node));
         if (!resolved) return false;
-        if (!cli_args_set_yaml_copy(job, resolved)) {
+        if (!cxgn_cli_args_set_yaml_copy(job, resolved)) {
             free(resolved);
             return false;
         }
@@ -408,11 +408,11 @@ static bool plan_job_collect_yaml(cli_args* job,
     for (size_t i = 0; i < count; i++) {
         const cxgn_node* item = cxgn_node_array_at(yaml_node, i);
         char* resolved;
-        const char* item_value = node_string_value(item);
+        const char* item_value = cxgn_cli_node_string_value(item);
         if (!item_value) return false;
-        resolved = resolve_plan_path(plan_dir, item_value);
+        resolved = cxgn_cli_resolve_plan_path(plan_dir, item_value);
         if (!resolved) return false;
-        if (!cli_args_set_yaml_copy(job, resolved)) {
+        if (!cxgn_cli_args_set_yaml_copy(job, resolved)) {
             free(resolved);
             return false;
         }
@@ -421,7 +421,7 @@ static bool plan_job_collect_yaml(cli_args* job,
     return true;
 }
 
-static int run_plan(const cli_args* args) {
+static int cxgn_cli_run_plan(const cli_args* args) {
     cxgn_error err = {0};
     cxgn_document* doc = cxgn_document_from_yaml_file(args->plan_path, &err);
     const cxgn_node* root;
@@ -443,7 +443,7 @@ static int run_plan(const cli_args* args) {
         return 1;
     }
 
-    codegen_node = find_object_key(root, "codegen");
+    codegen_node = cxgn_cli_find_object_key(root, "codegen");
     if (!codegen_node) {
         fprintf(stderr, "Error: plan YAML must contain a top-level codegen key\n");
         cxgn_document_free(doc);
@@ -452,8 +452,8 @@ static int run_plan(const cli_args* args) {
 
     jobs_node = codegen_node;
     if (cxgn_node_get_type(codegen_node) == CXGN_NODE_OBJECT) {
-        const cxgn_node* nested = find_object_key(codegen_node, "jobs");
-        if (!nested) nested = find_object_key(codegen_node, "list");
+        const cxgn_node* nested = cxgn_cli_find_object_key(codegen_node, "jobs");
+        if (!nested) nested = cxgn_cli_find_object_key(codegen_node, "list");
         if (nested) jobs_node = nested;
     }
 
@@ -463,7 +463,7 @@ static int run_plan(const cli_args* args) {
         return 1;
     }
 
-    plan_dir = path_get_directory(args->plan_path);
+    plan_dir = cxgn_cli_path_get_directory(args->plan_path);
     if (!plan_dir) {
         fprintf(stderr, "Error: out of memory\n");
         cxgn_document_free(doc);
@@ -487,17 +487,17 @@ static int run_plan(const cli_args* args) {
             break;
         }
 
-        yaml_node = find_object_key(job_node, "yaml");
-        header_value = node_string_value(find_object_key(job_node, "header"));
-        output_value = node_string_value(find_object_key(job_node, "output"));
+        yaml_node = cxgn_cli_find_object_key(job_node, "yaml");
+        header_value = cxgn_cli_node_string_value(cxgn_cli_find_object_key(job_node, "header"));
+        output_value = cxgn_cli_node_string_value(cxgn_cli_find_object_key(job_node, "output"));
         if (!yaml_node || !header_value || !output_value) {
             fprintf(stderr, "Error: codegen job %zu requires yaml, header and output\n", i);
             result = 1;
             break;
         }
 
-        header_path = resolve_plan_path(plan_dir, header_value);
-        output_path = resolve_plan_path(plan_dir, output_value);
+        header_path = cxgn_cli_resolve_plan_path(plan_dir, header_value);
+        output_path = cxgn_cli_resolve_plan_path(plan_dir, output_value);
         if (!header_path || !output_path) {
             fprintf(stderr, "Error: out of memory\n");
             free(header_path);
@@ -508,19 +508,19 @@ static int run_plan(const cli_args* args) {
 
         job.header_path = header_path;
         job.output_path = output_path;
-        job.header_include = node_string_value(find_object_key(job_node, "header_include"));
-        job.helpers_header = node_string_value(find_object_key(job_node, "helpers_header"));
-        job.root_struct = node_string_value(find_object_key(job_node, "root_struct"));
-        job.map_name = node_string_value(find_object_key(job_node, "map_name"));
-        job.map_type = node_string_value(find_object_key(job_node, "map_type"));
-        job.strict = node_bool_value(find_object_key(job_node, "strict"), args->strict);
-        job.verbose = args->verbose || node_bool_value(find_object_key(job_node, "verbose"), false);
+        job.header_include = cxgn_cli_node_string_value(cxgn_cli_find_object_key(job_node, "header_include"));
+        job.helpers_header = cxgn_cli_node_string_value(cxgn_cli_find_object_key(job_node, "helpers_header"));
+        job.root_struct = cxgn_cli_node_string_value(cxgn_cli_find_object_key(job_node, "root_struct"));
+        job.map_name = cxgn_cli_node_string_value(cxgn_cli_find_object_key(job_node, "map_name"));
+        job.map_type = cxgn_cli_node_string_value(cxgn_cli_find_object_key(job_node, "map_type"));
+        job.strict = cxgn_cli_node_bool_value(cxgn_cli_find_object_key(job_node, "strict"), args->strict);
+        job.verbose = args->verbose || cxgn_cli_node_bool_value(cxgn_cli_find_object_key(job_node, "verbose"), false);
 
-        if (find_object_key(job_node, "map_root")) {
-            map_root = resolve_plan_path(plan_dir, node_string_value(find_object_key(job_node, "map_root")));
+        if (cxgn_cli_find_object_key(job_node, "map_root")) {
+            map_root = cxgn_cli_resolve_plan_path(plan_dir, cxgn_cli_node_string_value(cxgn_cli_find_object_key(job_node, "map_root")));
             if (!map_root) {
                 fprintf(stderr, "Error: out of memory\n");
-                cli_args_release_owned_yaml(&job);
+                cxgn_cli_args_release_owned_yaml(&job);
                 free(header_path);
                 free(output_path);
                 result = 1;
@@ -529,9 +529,9 @@ static int run_plan(const cli_args* args) {
             job.map_root = map_root;
         }
 
-        if (!plan_job_collect_yaml(&job, plan_dir, yaml_node) || job.yaml_count == 0) {
+        if (!cxgn_cli_plan_job_collect_yaml(&job, plan_dir, yaml_node) || job.yaml_count == 0) {
             fprintf(stderr, "Error: codegen job %zu has invalid yaml value\n", i);
-            cli_args_release_owned_yaml(&job);
+            cxgn_cli_args_release_owned_yaml(&job);
             free(map_root);
             free(header_path);
             free(output_path);
@@ -542,9 +542,9 @@ static int run_plan(const cli_args* args) {
         if (job.verbose)
             printf("Running plan job %zu/%zu -> %s\n", i + 1, job_count, job.output_path);
 
-        result = execute_job(&job);
+        result = cxgn_cli_execute_job(&job);
 
-        cli_args_release_owned_yaml(&job);
+        cxgn_cli_args_release_owned_yaml(&job);
         free(map_root);
         free(header_path);
         free(output_path);
@@ -557,7 +557,7 @@ static int run_plan(const cli_args* args) {
     return result;
 }
 
-static void cli_diagnostic_sink(cxgn_diagnostic_level level,
+static void cxgn_cli_diagnostic_sink(cxgn_diagnostic_level level,
                                 const cxgn_error* diagnostic,
                                 void* userdata) {
     (void)userdata;
@@ -574,7 +574,7 @@ static void cli_diagnostic_sink(cxgn_diagnostic_level level,
     fprintf(stderr, ": %s\n", diagnostic->message ? diagnostic->message : "validation diagnostic");
 }
 
-static bool emit_batch_sources_comment(FILE* outfile, const cxgn_batch* batch) {
+static bool cxgn_cli_emit_batch_sources_comment(FILE* outfile, const cxgn_batch* batch) {
     if (!outfile || !batch) return false;
 
     size_t count = cxgn_batch_count(batch);
@@ -586,7 +586,7 @@ static bool emit_batch_sources_comment(FILE* outfile, const cxgn_batch* batch) {
     for (size_t i = 0; i < count; i++) {
         paths[i] = (char*)cxgn_batch_get_path(batch, i);
     }
-    qsort(paths, count, sizeof(char*), cmp_path_str);
+    qsort(paths, count, sizeof(char*), cxgn_cli_cmp_path_str);
 
     fprintf(outfile, "// Sources: ");
     for (size_t i = 0; i < count; i++) {
@@ -602,7 +602,7 @@ static bool emit_batch_sources_comment(FILE* outfile, const cxgn_batch* batch) {
  * Single-file mode
  * ═══════════════════════════════════════════════════════════════════════════ */
 
-static int run_single(const cli_args* args,
+static int cxgn_cli_run_single(const cli_args* args,
                       cxgn_generator* gen,
                       cxgn_struct_parser* parser,
                       cxgn_string_utils* utils) {
@@ -622,7 +622,7 @@ static int run_single(const cli_args* args,
         return 1;
     }
 
-    if (args->header_include) include_path = duplicate_string(args->header_include);
+    if (args->header_include) include_path = cxgn_cli_duplicate_string(args->header_include);
     else include_path = cxgn_path_relative_to_file(args->output_path, args->header_path);
     if (!include_path) {
         fprintf(stderr, "Error: out of memory\n");
@@ -638,7 +638,7 @@ static int run_single(const cli_args* args,
         return 1;
     }
 
-    char* guard = make_include_guard(args->output_path);
+    char* guard = cxgn_cli_make_include_guard(args->output_path);
     if (!guard) {
         fprintf(stderr, "Error: out of memory\n");
         fclose(outfile);
@@ -674,7 +674,7 @@ static int run_single(const cli_args* args,
  * Batch mode
  * ═══════════════════════════════════════════════════════════════════════════ */
 
-static int run_batch(const cli_args* args,
+static int cxgn_cli_run_batch(const cli_args* args,
                      cxgn_generator* gen,
                      cxgn_struct_parser* parser,
                      cxgn_string_utils* utils) {
@@ -690,7 +690,7 @@ static int run_batch(const cli_args* args,
 
     for (size_t i = 0; i < args->yaml_count; i++) {
         const char* pat = args->yaml_patterns[i];
-        if (is_glob_pattern(pat)) {
+        if (cxgn_cli_is_glob_pattern(pat)) {
             if (!cxgn_batch_add_glob(batch, pat, &err)) {
                 fprintf(stderr, "Error expanding glob '%s': %s\n", pat, err.message);
                 cxgn_batch_free(batch);
@@ -728,7 +728,7 @@ static int run_batch(const cli_args* args,
         return 1;
     }
 
-    if (args->header_include) include_path = duplicate_string(args->header_include);
+    if (args->header_include) include_path = cxgn_cli_duplicate_string(args->header_include);
     else include_path = cxgn_path_relative_to_file(args->output_path, args->header_path);
     if (!include_path) {
         fprintf(stderr, "Error: out of memory\n");
@@ -744,7 +744,7 @@ static int run_batch(const cli_args* args,
         return 1;
     }
 
-    char* guard = make_include_guard(args->output_path);
+    char* guard = cxgn_cli_make_include_guard(args->output_path);
     if (!guard) {
         fprintf(stderr, "Error: out of memory\n");
         fclose(outfile);
@@ -754,7 +754,7 @@ static int run_batch(const cli_args* args,
     }
 
     fprintf(outfile, "// GENERATED FILE - DO NOT EDIT\n");
-    if (!emit_batch_sources_comment(outfile, batch)) {
+    if (!cxgn_cli_emit_batch_sources_comment(outfile, batch)) {
         fprintf(stderr, "Error: out of memory\n");
         fclose(outfile);
         free(guard);
@@ -841,7 +841,7 @@ bool cxgn_parse_args(int argc, char* argv[], cxgn_cli_args* args, cxgn_error* er
         } else if (strcmp(argv[i], "--verbose") == 0 || strcmp(argv[i], "-v") == 0) {
             args->verbose = true;
         } else if (strcmp(argv[i], "--help") == 0) {
-            print_usage(argv[0]);
+            cxgn_cli_print_usage(argv[0]);
             exit(0);
         }
         /* Batch flags silently ignored in single-file compat mode */
@@ -860,12 +860,12 @@ bool cxgn_parse_args(int argc, char* argv[], cxgn_cli_args* args, cxgn_error* er
 
 int main(int argc, char* argv[]) {
     cli_args args;
-    if (!parse_args(argc, argv, &args)) {
-        print_usage(argv[0]);
+    if (!cxgn_cli_parse_args(argc, argv, &args)) {
+        cxgn_cli_print_usage(argv[0]);
         return 1;
     }
 
-    int result = args.plan_path ? run_plan(&args) : execute_job(&args);
-    cli_args_free(&args);
+    int result = args.plan_path ? cxgn_cli_run_plan(&args) : cxgn_cli_execute_job(&args);
+    cxgn_cli_args_free(&args);
     return result;
 }

@@ -106,11 +106,70 @@ static void test_parse_enum_typedefs(void) {
     printf("  ✓ test_parse_enum_typedefs\n");
 }
 
+static void test_parse_struct_comments(void) {
+    cxgn_string_utils* utils = cxgn_string_utils_new();
+    cxgn_struct_parser* parser = cxgn_struct_parser_new(utils);
+    cxgn_error err = {0};
+    const char* header_text =
+        "/** top-level comment with typedef struct ignored_demo { int x; }; */\n"
+        "typedef struct comment_demo {\n"
+        "    /* Full-line block comment inside struct. */\n"
+        "    double G;  /* trailing block comment */\n"
+        "    /**\n"
+        "     * Multi-line doc comment with punctuation: `params`, \"quote\", apostrophe.\n"
+        "     */\n"
+        "    const char* text;\n"
+        "    const char* url;\n"
+        "    // Full-line C++ comment inside struct.\n"
+        "    int steps;\n"
+        "} comment_demo;\n";
+
+    assert(cxgn_struct_parser_parse_text(parser, header_text, "fixtures/comment_demo.h", &err));
+
+    const cxgn_struct_info* info = cxgn_struct_parser_find_struct(parser, "comment_demo");
+    assert(info != NULL);
+    assert(cxgn_struct_get_field_count(info) == 4u);
+    assert(cxgn_struct_find_field(info, "G") != NULL);
+    assert(cxgn_struct_find_field(info, "text") != NULL);
+    assert(cxgn_struct_find_field(info, "url") != NULL);
+    assert(cxgn_struct_find_field(info, "steps") != NULL);
+
+    cxgn_struct_parser_free(parser);
+    cxgn_string_utils_free(utils);
+    printf("  ✓ test_parse_struct_comments\n");
+}
+
+static void test_preserve_comment_markers_in_string_literals(void) {
+    cxgn_string_utils* utils = cxgn_string_utils_new();
+    cxgn_struct_parser* parser = cxgn_struct_parser_new(utils);
+    cxgn_error err = {0};
+    const char* header_text =
+        "typedef const char* expr_t;\n"
+        "typedef struct string_comment_demo {\n"
+        "    const char* slash_text;\n"
+        "    expr_t expr;\n"
+        "} string_comment_demo;\n"
+        "static const char* ignored = \"not a /* comment */ or // comment\";\n";
+
+    assert(cxgn_struct_parser_parse_text(parser, header_text, "fixtures/string_comment_demo.h", &err));
+
+    const cxgn_struct_info* info = cxgn_struct_parser_find_struct(parser, "string_comment_demo");
+    assert(info != NULL);
+    assert(cxgn_struct_get_field_count(info) == 2u);
+    assert(strcmp(cxgn_field_get_type(cxgn_struct_find_field(info, "expr")), "expr_t") == 0);
+
+    cxgn_struct_parser_free(parser);
+    cxgn_string_utils_free(utils);
+    printf("  ✓ test_preserve_comment_markers_in_string_literals\n");
+}
+
 int main(void) {
     printf("Running struct parser text tests...\n");
     test_parse_header_text();
     test_parse_multiline_wrapper_aliases();
     test_parse_enum_typedefs();
+    test_parse_struct_comments();
+    test_preserve_comment_markers_in_string_literals();
     printf("All struct parser text tests passed!\n");
     return 0;
 }
