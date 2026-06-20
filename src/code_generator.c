@@ -36,6 +36,7 @@ static void cxgn_generated_field_cleanup(cxgn_field_info* field) {
     free(field->default_value);
     free(field->array_elem_type);
     free(field->optional_value_type);
+    free(field->map_elem_type);
     memset(field, 0, sizeof(*field));
 }
 
@@ -445,6 +446,11 @@ static bool cxgn_populate_field_alias_traits(const cxgn_struct_parser* parser, c
         field->is_optional = true;
         field->optional_value_type = cxgn_strdup(alias->value_type);
         return field->optional_value_type != NULL;
+    }
+    if (alias->kind == CXGN_ALIAS_MAP && !field->is_map) {
+        field->is_map = true;
+        field->map_elem_type = cxgn_strdup(alias->value_type);
+        return field->map_elem_type != NULL;
     }
     return true;
 }
@@ -1060,16 +1066,83 @@ static bool cxgn_gen_pointer(gen_context* ctx, const cxgn_node* node,
     return true;
 }
 
+/* A YAML mapping with arbitrary keys -> array of entry structs. Each entry's
+ * first field is the key; a scalar value fills the second field, an object
+ * value spreads into the remaining fields. Reuses the array code generator. */
+static bool cxgn_gen_map(gen_context* ctx, const cxgn_node* node,
+                         const cxgn_field_info* field) {
+    if (!node || cxgn_node_get_type(node) != CXGN_NODE_OBJECT) {
+        cxgn_error_set(ctx->err, CXGN_ERR_TYPE_MISMATCH, "Expected mapping for map field");
+        return false;
+    }
+    const cxgn_struct_info* elem = cxgn_find_struct_relaxed(ctx->gen->parser, field->map_elem_type);
+    if (!elem || cxgn_struct_get_field_count(elem) < 1) {
+        cxgn_error_set(ctx->err, CXGN_ERR_UNKNOWN_STRUCT,
+                       "Map entry type unknown or has no fields");
+        return false;
+    }
+    const char* key_field = cxgn_field_get_name(cxgn_struct_get_field(elem, 0));
+    const cxgn_field_info* value_field =
+        cxgn_struct_get_field_count(elem) >= 2 ? cxgn_struct_get_field(elem, 1) : NULL;
+
+    cxgn_node* arr = cxgn_node_new_array();
+    if (!arr) { cxgn_error_set(ctx->err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory"); return false; }
+
+    const size_t n = cxgn_node_object_count(node);
+    bool ok = true;
+    for (size_t i = 0; i < n && ok; i++) {
+        const char* key = cxgn_node_object_key_at(node, i);
+        const cxgn_node* val = cxgn_node_object_value_at(node, i);
+        cxgn_node* entry = cxgn_node_new_object();
+        if (!entry) { ok = false; break; }
+        ok = cxgn_node_object_append(entry, key_field,
+                                     cxgn_node_new_string(key, strlen(key)), 0, 0);
+        if (ok && cxgn_node_get_type(val) == CXGN_NODE_OBJECT) {
+            const size_t vn = cxgn_node_object_count(val);
+            for (size_t j = 0; j < vn && ok; j++)
+                ok = cxgn_node_object_append(entry, cxgn_node_object_key_at(val, j),
+                                             cxgn_node_clone(cxgn_node_object_value_at(val, j)), 0, 0);
+        } else if (ok && value_field) {
+            ok = cxgn_node_object_append(entry, cxgn_field_get_name(value_field),
+                                         cxgn_node_clone(val), 0, 0);
+        } else if (ok) {
+            cxgn_node_free(entry);
+            cxgn_node_free(arr);
+            cxgn_error_set(ctx->err, CXGN_ERR_TYPE_MISMATCH,
+                           "Map entry type needs a second field for scalar values");
+            return false;
+        }
+        if (ok) ok = cxgn_node_array_append(arr, entry);
+        else cxgn_node_free(entry);
+    }
+
+    if (ok) {
+        cxgn_field_info af = {0};
+        af.is_array = true;
+        af.array_elem_type = cxgn_strdup(field->map_elem_type);
+        ok = af.array_elem_type && cxgn_gen_array(ctx, arr, &af);
+        cxgn_generated_field_cleanup(&af);
+        if (!af.array_elem_type) cxgn_error_set(ctx->err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
+    } else {
+        cxgn_error_set(ctx->err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
+    }
+    cxgn_node_free(arr);
+    return ok;
+}
+
 static bool cxgn_gen_value(gen_context* ctx, const cxgn_node* node,
                       const cxgn_field_info* field) {
     cxgn_field_info derived = {0};
     derived.type = cxgn_strdup(field->type);
     derived.is_array = field->is_array;
     derived.is_optional = field->is_optional;
+    derived.is_map = field->is_map;
     derived.array_elem_type = field->array_elem_type ? cxgn_strdup(field->array_elem_type) : NULL;
     derived.optional_value_type = field->optional_value_type ? cxgn_strdup(field->optional_value_type) : NULL;
+    derived.map_elem_type = field->map_elem_type ? cxgn_strdup(field->map_elem_type) : NULL;
     if (!derived.type || (field->array_elem_type && !derived.array_elem_type) ||
-        (field->optional_value_type && !derived.optional_value_type)) {
+        (field->optional_value_type && !derived.optional_value_type) ||
+        (field->map_elem_type && !derived.map_elem_type)) {
         cxgn_generated_field_cleanup(&derived);
         cxgn_error_set(ctx->err, CXGN_ERR_OUT_OF_MEMORY, "Out of memory");
         return false;
@@ -1080,6 +1153,11 @@ static bool cxgn_gen_value(gen_context* ctx, const cxgn_node* node,
         return false;
     }
 
+    if (derived.is_map) {
+        const bool ok = cxgn_gen_map(ctx, node, &derived);
+        cxgn_generated_field_cleanup(&derived);
+        return ok;
+    }
     if (derived.is_array) {
         const bool ok = cxgn_gen_array(ctx, node, &derived);
         cxgn_generated_field_cleanup(&derived);

@@ -481,6 +481,10 @@ const cxgn_node* cxgn_node_object_find(const cxgn_node* node, const char* key, s
     return NULL;
 }
 
+cxgn_node* cxgn_node_clone(const cxgn_node* node) {
+    return cxgn_node_clone_internal(node);
+}
+
 static cxgn_node* cxgn_node_clone_internal(const cxgn_node* node) {
     cxgn_node* out;
     size_t i;

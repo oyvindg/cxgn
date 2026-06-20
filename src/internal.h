@@ -124,13 +124,19 @@ struct cxgn_field_info {
     char* array_elem_type;    /**< Element type if array (owned) */
     bool is_optional;         /**< true if cxgn optional typedef */
     char* optional_value_type; /**< Value type if optional (owned) */
+    bool is_map;              /**< true if cxgn map typedef */
+    char* map_elem_type;      /**< Entry struct type if map (owned) */
 };
 
 typedef enum {
     CXGN_ALIAS_ARRAY = 1,
     CXGN_ALIAS_OPTIONAL = 2,
-    CXGN_ALIAS_SCALAR = 3  /**< Simple typedef — resolves the underlying type   */
+    CXGN_ALIAS_SCALAR = 3, /**< Simple typedef — resolves the underlying type   */
+    CXGN_ALIAS_MAP = 4     /**< CXGN_MAP_TYPEDEF — YAML mapping -> keyed array   */
 } cxgn_type_alias_kind;
+
+/** @brief Deep-clone a document node (exposed for the map code generator). */
+cxgn_node* cxgn_node_clone(const cxgn_node* node);
 
 typedef struct {
     char* name;

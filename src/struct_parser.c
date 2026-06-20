@@ -216,6 +216,9 @@ static bool cxgn_parse_macro_alias(cxgn_struct_parser* parser, const char* line)
     } else if (cxgn_starts_with(line, "CXGN_OPTIONAL_TYPEDEF(")) {
         kind = "CXGN_OPTIONAL_TYPEDEF(";
         alias_kind = CXGN_ALIAS_OPTIONAL;
+    } else if (cxgn_starts_with(line, "CXGN_MAP_TYPEDEF(")) {
+        kind = "CXGN_MAP_TYPEDEF(";
+        alias_kind = CXGN_ALIAS_MAP;
     } else {
         return false;
     }

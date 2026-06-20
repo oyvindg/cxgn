@@ -20,6 +20,7 @@ set(CXGN_TEST_BASES
     code_generator
     integration
     batch
+    map
 )
 
 set(CXGN_YAML_DEPENDENT
@@ -37,6 +38,7 @@ set(CXGN_YAML_DEPENDENT
     code_generator
     integration
     batch
+    map
 )
 
 foreach(test_base IN LISTS CXGN_TEST_BASES)
