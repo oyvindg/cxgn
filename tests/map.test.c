@@ -35,6 +35,7 @@ static void test_map_typedef_generates_keyed_array(void) {
 
     cxgn_output_free(out);
     cxgn_generator_free(gen);
+    cxgn_struct_parser_free(parser);
     cxgn_string_utils_free(utils);
     printf("  map_typedef keyed-array OK\n");
 }
@@ -68,6 +69,7 @@ static void test_generate_file_writes_complete_header(void) {
     assert(strstr(buf, "#endif") != NULL);
 
     cxgn_generator_free(gen);
+    cxgn_struct_parser_free(parser);
     cxgn_string_utils_free(utils);
     printf("  generate_file complete-header OK\n");
 }

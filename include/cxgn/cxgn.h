@@ -22,7 +22,7 @@ extern "C" {
 
 #define CXGN_VERSION_MAJOR 1
 #define CXGN_VERSION_MINOR 2
-#define CXGN_VERSION_PATCH 0
+#define CXGN_VERSION_PATCH 1
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * Opaque handles
