@@ -52,6 +52,44 @@ Pointer fields and `const char*` strings are nullable. If a pointer/string field
 
 Use `CXGN_OPTIONAL_TYPEDEF` for values where `0` or `false` is a valid value and the C code must distinguish that from `null` or a missing YAML field.
 
+## Maps (named entries)
+
+`CXGN_MAP_TYPEDEF(T, Name)` binds a YAML **mapping with arbitrary keys** to a keyed array of `T`. This is for config authored as `name: value` entries (e.g. a strategy's named expressions) without listing each entry as an array element. Each `key: value` becomes one `T`: the key fills `T`'s **first field**, and the value fills the rest — a scalar value goes into the second field, an object value spreads into `T`'s remaining fields. The C representation is the same `{const T* data; size_t count;}` view as an array.
+
+```c
+typedef struct NamedExpr {
+    const char* name;   /* first field receives the YAML key */
+    const char* expr;   /* second field receives the scalar value */
+} NamedExpr;
+
+CXGN_MAP_TYPEDEF(NamedExpr, NamedExprMap)
+
+typedef struct Strategy {
+    const char* title;
+    NamedExprMap expressions;
+} Strategy;
+```
+
+```yaml
+title: demo
+expressions:           # arbitrary keys -> keyed array, no host pre-flattening
+  trend: "close > ema"
+  entry: "trend and rsi > 50"
+```
+
+generates:
+
+```c
+static NamedExpr const _backing_Strategy_expressions_0_data[] = {
+    {.name = "trend", .expr = "close > ema"},
+    {.name = "entry", .expr = "trend and rsi > 50"},
+};
+static const Strategy config = {
+    .title = "demo",
+    .expressions = {.data = _backing_Strategy_expressions_0_data, .count = 2},
+};
+```
+
 ```yaml
 skybox: null
 preview_point: null

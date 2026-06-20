@@ -1,0 +1,4 @@
+title: demo
+expressions:
+  trend: "close > ema"
+  entry: "trend and rsi > 50"
