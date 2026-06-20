@@ -14,7 +14,10 @@ static void test_map_typedef_generates_keyed_array(void) {
     cxgn_string_utils* utils = cxgn_string_utils_new();
     cxgn_struct_parser* parser = cxgn_struct_parser_new(utils);
     assert(utils && parser);
-    assert(cxgn_struct_parser_parse_file(parser, "fixtures/map.h", &err));
+    /* Calls with side effects must run even under NDEBUG, so keep them out of
+     * assert() and assert on the result variable. */
+    bool parsed = cxgn_struct_parser_parse_file(parser, "fixtures/map.h", &err);
+    assert(parsed);
 
     cxgn_generator* gen = cxgn_generator_new(parser, utils);
     assert(gen);
@@ -44,13 +47,15 @@ static void test_generate_file_writes_complete_header(void) {
     cxgn_error err = {0};
     cxgn_string_utils* utils = cxgn_string_utils_new();
     cxgn_struct_parser* parser = cxgn_struct_parser_new(utils);
-    assert(cxgn_struct_parser_parse_file(parser, "fixtures/map.h", &err));
+    bool parsed = cxgn_struct_parser_parse_file(parser, "fixtures/map.h", &err);
+    assert(parsed);
     cxgn_generator* gen = cxgn_generator_new(parser, utils);
     cxgn_generator_set_root_struct(gen, "Strategy");
 
     const char* out_path = "map_generated_test.gen.h";
-    assert(cxgn_generate_file(gen, "fixtures/map.yaml", "fixtures/map.h",
-                              out_path, "fixtures/map.h", NULL, &err));
+    bool wrote = cxgn_generate_file(gen, "fixtures/map.yaml", "fixtures/map.h",
+                                    out_path, "fixtures/map.h", NULL, &err);
+    assert(wrote);
 
     FILE* f = fopen(out_path, "rb");
     assert(f);
