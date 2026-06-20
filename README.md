@@ -280,6 +280,17 @@ The generated file includes:
 - the schema header
 - backing arrays and a root `static const ... config`
 
+`cxgn_generate(...)` followed by `cxgn_output_get_code()` returns only the config
+body (backing arrays + the `static const ... config`). To write a complete,
+self-contained `.gen.h` — banner, include guard, `<stddef.h>`/`<stdbool.h>`, the
+schema `#include`, and the body — call `cxgn_generate_file()` (the file-writing
+the CLI does, exposed for library consumers so they don't reimplement it):
+
+```c
+cxgn_generate_file(gen, "scene.yaml", "scene.h", "scene.gen.h",
+                   /*header_include=*/NULL, /*helpers_header=*/NULL, &err);
+```
+
 In batch mode, the combined output also includes:
 
 - per-entry prefixed symbols to avoid collisions

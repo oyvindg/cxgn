@@ -1433,6 +1433,60 @@ cxgn_output* cxgn_generate(cxgn_generator* gen, const char* yaml_path,
     return result;
 }
 
+/* Derive a C include guard from the output filename (e.g. scene.gen.h -> CXGN_SCENE_GEN_H). */
+static char* cxgn_make_include_guard(const char* output_path) {
+    size_t len = strlen(output_path);
+    char* guard = (char*)malloc(len + 16);
+    if (!guard) return NULL;
+    size_t w = 0;
+    guard[w++] = 'C'; guard[w++] = 'X'; guard[w++] = 'G'; guard[w++] = 'N'; guard[w++] = '_';
+    for (size_t i = 0; i < len; i++) {
+        unsigned char c = (unsigned char)output_path[i];
+        guard[w++] = isalnum(c) ? (char)toupper(c) : '_';
+    }
+    while (w > 0 && guard[w - 1] == '_') w--;
+    if (!(w >= 2 && guard[w - 2] == '_' && guard[w - 1] == 'H')) { guard[w++] = '_'; guard[w++] = 'H'; }
+    guard[w] = '\0';
+    return guard;
+}
+
+bool cxgn_generate_file(cxgn_generator* gen, const char* yaml_path, const char* header_path,
+                        const char* output_path, const char* header_include,
+                        const char* helpers_header, cxgn_error* err) {
+    cxgn_error_init(err);
+    if (!gen || !yaml_path || !header_path || !output_path) {
+        cxgn_error_set(err, CXGN_ERR_PARSE_ERROR, "Invalid arguments");
+        return false;
+    }
+
+    cxgn_output* output = cxgn_generate(gen, yaml_path, header_path, err);
+    if (!output) return false;
+
+    char* include_path = header_include ? cxgn_strdup(header_include)
+                                        : cxgn_path_relative_to_file(output_path, header_path);
+    char* guard = cxgn_make_include_guard(output_path);
+    FILE* f = include_path && guard ? fopen(output_path, "w") : NULL;
+    if (!f) {
+        cxgn_error_set(err, include_path && guard ? CXGN_ERR_FILE_NOT_FOUND : CXGN_ERR_OUT_OF_MEMORY,
+                       include_path && guard ? "Cannot open output file" : "Out of memory");
+        free(include_path); free(guard); cxgn_output_free(output);
+        return false;
+    }
+
+    fprintf(f, "// GENERATED FILE - DO NOT EDIT\n");
+    fprintf(f, "// Source YAML: %s\n// Source Header: %s\n", yaml_path, header_path);
+    fprintf(f, "#ifndef %s\n#define %s\n\n", guard, guard);
+    fprintf(f, "#include <stddef.h>\n#include <stdbool.h>\n");
+    if (helpers_header) fprintf(f, "#include <%s>\n", helpers_header);
+    fprintf(f, "#include \"%s\"\n\n", include_path);
+    fprintf(f, "%s", cxgn_output_get_code(output));
+    fprintf(f, "\n#endif /* %s */\n", guard);
+
+    fclose(f);
+    free(include_path); free(guard); cxgn_output_free(output);
+    return true;
+}
+
 cxgn_output* cxgn_generate_from_yaml_text(cxgn_generator* gen, const char* yaml_text,
                                           const char* yaml_virtual_path, const char* header_path,
                                           cxgn_error* err) {
