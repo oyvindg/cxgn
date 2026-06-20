@@ -39,9 +39,43 @@ static void test_map_typedef_generates_keyed_array(void) {
     printf("  map_typedef keyed-array OK\n");
 }
 
+static void test_generate_file_writes_complete_header(void) {
+    cxgn_error err = {0};
+    cxgn_string_utils* utils = cxgn_string_utils_new();
+    cxgn_struct_parser* parser = cxgn_struct_parser_new(utils);
+    assert(cxgn_struct_parser_parse_file(parser, "fixtures/map.h", &err));
+    cxgn_generator* gen = cxgn_generator_new(parser, utils);
+    cxgn_generator_set_root_struct(gen, "Strategy");
+
+    const char* out_path = "map_generated_test.gen.h";
+    assert(cxgn_generate_file(gen, "fixtures/map.yaml", "fixtures/map.h",
+                              out_path, "fixtures/map.h", NULL, &err));
+
+    FILE* f = fopen(out_path, "rb");
+    assert(f);
+    char buf[4096] = {0};
+    size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+    fclose(f);
+    remove(out_path);
+    assert(n > 0);
+
+    /* Complete, self-contained header: guard + includes + schema + body. */
+    assert(strstr(buf, "#ifndef ") != NULL);
+    assert(strstr(buf, "#include <stddef.h>") != NULL);
+    assert(strstr(buf, "#include \"fixtures/map.h\"") != NULL);
+    assert(strstr(buf, "static const Strategy config") != NULL);
+    assert(strstr(buf, ".name = \"trend\"") != NULL);
+    assert(strstr(buf, "#endif") != NULL);
+
+    cxgn_generator_free(gen);
+    cxgn_string_utils_free(utils);
+    printf("  generate_file complete-header OK\n");
+}
+
 int main(void) {
     printf("map tests:\n");
     test_map_typedef_generates_keyed_array();
+    test_generate_file_writes_complete_header();
     printf("All map tests passed.\n");
     return 0;
 }

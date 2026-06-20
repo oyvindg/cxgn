@@ -21,7 +21,7 @@ extern "C" {
  * ═══════════════════════════════════════════════════════════════════════════ */
 
 #define CXGN_VERSION_MAJOR 1
-#define CXGN_VERSION_MINOR 1
+#define CXGN_VERSION_MINOR 2
 #define CXGN_VERSION_PATCH 0
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -662,6 +662,28 @@ void cxgn_generator_set_root_struct(cxgn_generator* gen, const char* root_struct
  */
 cxgn_output* cxgn_generate(cxgn_generator* gen, const char* yaml_path,
                         const char* header_path, cxgn_error* err);
+
+/**
+ * @brief Generate a complete, self-contained `.gen.h` file.
+ *
+ * Wraps cxgn_generate() and writes the full header: a generated-file banner, an
+ * include guard derived from @p output_path, `<stddef.h>`/`<stdbool.h>`, the
+ * schema `#include`, and the generated config body. This is the file-writing the
+ * CLI does, exposed so library consumers don't reimplement it.
+ *
+ * @param gen Generator instance.
+ * @param yaml_path Path to the YAML config.
+ * @param header_path Path to the schema header.
+ * @param output_path Path to write the generated `.gen.h`.
+ * @param header_include Include path emitted for the schema, or NULL to derive it
+ *        relative to @p output_path.
+ * @param helpers_header Optional `#include <...>` for cxgn helper typedefs, or NULL.
+ * @param err Error output (can be NULL).
+ * @return true on success, false on error.
+ */
+bool cxgn_generate_file(cxgn_generator* gen, const char* yaml_path, const char* header_path,
+                        const char* output_path, const char* header_include,
+                        const char* helpers_header, cxgn_error* err);
 
 /**
  * @brief Generate C code directly from an in-memory YAML document tree.
